@@ -1,5 +1,11 @@
 # Planning Summary
 
+| | |
+|---|---|
+| **Purpose** | Initial architecture and design decisions before implementation. Living document — updated as decisions evolve. Not a source of truth. |
+| **Created** | 2026-03-20 |
+| **Updated** | 2026-03-20 |
+
 ## What We're Building
 
 A Go indexer and REST API for Uniswap's Continuous Clearing Auction (CCA) contracts. The system discovers token sale auctions from the factory contract, indexes all on-chain events, stores them in PostgreSQL, and serves them via a read-only API.
@@ -25,7 +31,7 @@ CCA is a time-weighted uniform clearing price auction for bootstrapping token li
 cmd/indexer/    cmd/api/
        \           /
      internal/
-       ├── domain/     # pure types (Auction, Bid, Checkpoint, Tick, Step)
+       ├── domain/cca/  # CCA types (Auction, Bid, Checkpoint, Tick, Step)
        ├── indexer/     # poll loop, event processing, reorg handling
        ├── store/       # postgres (migrations, repositories)
        ├── api/         # HTTP handlers, routing
@@ -35,7 +41,12 @@ cmd/indexer/    cmd/api/
 
 - **Indexer**: per-chain polling loop, atomic writes per block, reorg rollback via block hash tracking
 - **Store**: PostgreSQL, `chain_id` on every table, raw events table for replay, idempotent writes keyed by `(chain_id, block_number, tx_hash, log_index)`
-- **API**: REST at `/api/v1/{chain_id}/...` — auctions, bids, checkpoints, price history, ticks. Cursor-based pagination. Health/readiness checks.
+- **API**: REST at `/api/v1/{chain_id}/...` — auctions, bids, checkpoints, price history, ticks. Cursor-based pagination. Health/readiness checks. Caching strategy:
+  - In-memory cache (e.g. groupcache or simple TTL map) for hot paths: auction list, auction detail, clearing price
+  - Finalized data is immutable and infinitely cacheable — ended auctions, exited bids, historical checkpoints
+  - Active auction data gets short TTLs (seconds), keyed by latest indexed block so cache invalidates naturally on new blocks
+  - HTTP cache headers (ETag/Last-Modified based on indexed block) to let downstream (CDN, reverse proxy) cache too
+  - Start simple (in-process cache), add Redis only if needed for multi-instance API deployments
 - **Eth client**: RPC wrapper with retry, rate limiting, ABI bindings
 
 ## Key Design Decisions
@@ -43,12 +54,15 @@ cmd/indexer/    cmd/api/
 - Domain types are plain structs with no DB dependencies
 - Single database, multi-chain (chain_id discriminator)
 - Raw events stored alongside derived tables (audit trail + replay)
-- Per-chain indexer goroutines with independent cursors
+- Per-chain indexer goroutines with independent cursors. Tradeoffs vs. separate deployed processes:
+  - **Goroutines (single process):** simpler deployment and config, shared DB pool, single binary to monitor. Downside: one chain's panic or memory leak takes down all chains, can't scale/restart chains independently.
+  - **Separate processes:** independent failure domains, per-chain resource tuning and scaling, can restart one chain without affecting others. Downside: more operational overhead (multiple deployments, health checks, configs).
+  - Starting with goroutines — simpler to build, easy to split later since each chain's indexer is already isolated by design.
 - 12-factor config via environment variables
 
 ## Production Concerns
 
-- Structured logging (slog), Prometheus metrics, liveness/readiness health checks
+- Structured logging (slog), Prometheus metrics, liveness/readiness health checks. slog over zerolog because: stdlib (no dependency), good enough performance for this use case, and becoming the Go ecosystem default. zerolog is faster for extreme throughput but adds a dependency for marginal gain here. Easy to swap later since both produce structured JSON.
 - Graceful shutdown with context propagation
 - RPC resilience (retry, backoff, circuit breaker, fallback endpoints)
 - Atomic block processing in transactions
