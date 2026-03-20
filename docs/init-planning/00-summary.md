@@ -40,7 +40,11 @@ cmd/indexer/    cmd/api/
 ```
 
 - **Indexer**: per-chain polling loop, atomic writes per block, reorg rollback via block hash tracking
-- **Store**: PostgreSQL, `chain_id` on every table, raw events table for replay, idempotent writes keyed by `(chain_id, block_number, tx_hash, log_index)`
+- **Store**: PostgreSQL via `pgx` (raw SQL), `chain_id` on every table, raw events table for replay, idempotent writes keyed by `(chain_id, block_number, tx_hash, log_index)`. Database tooling:
+  - `pgx` as the driver — Postgres-native, fast, good `NUMERIC`/custom type support for uint256 values
+  - Hand-written SQL to start. Indexer writes are event-driven (upserts, batch inserts, block-range rollbacks) which don't map well to ORMs. Read queries are specific enough that raw SQL is clearer.
+  - `sqlc` is an option to add later if query count grows — it generates type-safe Go from SQL files, so you keep writing SQL but get compile-time safety. Low migration cost since the SQL stays the same.
+  - `pgxpool` for connection pooling
 - **API**: REST at `/api/v1/{chain_id}/...` — auctions, bids, checkpoints, price history, ticks. Cursor-based pagination. Health/readiness checks. Caching strategy:
   - In-memory cache (e.g. groupcache or simple TTL map) for hot paths: auction list, auction detail, clearing price
   - Finalized data is immutable and infinitely cacheable — ended auctions, exited bids, historical checkpoints
