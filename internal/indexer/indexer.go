@@ -2,9 +2,12 @@ package indexer
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"math/big"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/cca/go-indexer/internal/eth"
@@ -46,7 +49,39 @@ func New(ethClient eth.Client, s store.Store, registry *HandlerRegistry, config 
 // tick performs one iteration of the indexer loop.
 // Returns (newCursor, atHead, error).
 func (idx *ChainIndexer) tick(ctx context.Context, cursor uint64) (uint64, bool, error) {
-	panic("not implemented")
+	head, err := idx.ethClient.BlockNumber(ctx)
+	if err != nil {
+		return cursor, false, fmt.Errorf("BlockNumber: %w", err)
+	}
+
+	var safeHead uint64
+	if head > idx.config.Confirmations {
+		safeHead = head - idx.config.Confirmations
+	}
+
+	if cursor >= safeHead {
+		return cursor, true, nil
+	}
+
+	from := cursor + 1
+	to := cursor + idx.config.BlockBatchSize
+	if to > safeHead {
+		to = safeHead
+	}
+
+	logs, err := idx.ethClient.FilterLogs(ctx, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(from),
+		ToBlock:   new(big.Int).SetUint64(to),
+		Addresses: idx.config.Addresses,
+		Topics:    idx.registry.TopicFilter(),
+	})
+	if err != nil {
+		return cursor, false, fmt.Errorf("FilterLogs: %w", err)
+	}
+
+	_ = logs // dispatch in next chunk
+
+	return to, to >= safeHead, nil
 }
 
 // Run starts the indexer loop. It blocks until ctx is cancelled.
