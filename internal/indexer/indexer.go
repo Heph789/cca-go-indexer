@@ -79,10 +79,35 @@ func (idx *ChainIndexer) tick(ctx context.Context, cursor uint64) (uint64, bool,
 		return cursor, false, fmt.Errorf("FilterLogs: %w", err)
 	}
 
-	for _, log := range logs {
-		if err := idx.registry.HandleLog(ctx, idx.chainID, log, idx.store); err != nil {
-			return cursor, false, fmt.Errorf("HandleLog: %w", err)
+	err = idx.store.WithTx(ctx, func(txStore store.Store) error {
+		for blockNum := from; blockNum <= to; blockNum++ {
+			header, err := idx.ethClient.HeaderByNumber(ctx, new(big.Int).SetUint64(blockNum))
+			if err != nil {
+				return fmt.Errorf("HeaderByNumber(%d): %w", blockNum, err)
+			}
+			if err := txStore.BlockRepo().Insert(ctx, idx.chainID, blockNum, header.Hash().Hex(), header.ParentHash.Hex()); err != nil {
+				return fmt.Errorf("BlockRepo.Insert(%d): %w", blockNum, err)
+			}
 		}
+
+		for _, log := range logs {
+			if err := idx.registry.HandleLog(ctx, idx.chainID, log, txStore); err != nil {
+				return fmt.Errorf("HandleLog: %w", err)
+			}
+		}
+
+		lastHeader, err := idx.ethClient.HeaderByNumber(ctx, new(big.Int).SetUint64(to))
+		if err != nil {
+			return fmt.Errorf("HeaderByNumber(%d): %w", to, err)
+		}
+		if err := txStore.CursorRepo().Upsert(ctx, idx.chainID, to, lastHeader.Hash().Hex()); err != nil {
+			return fmt.Errorf("CursorRepo.Upsert: %w", err)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return cursor, false, err
 	}
 
 	return to, to >= safeHead, nil
