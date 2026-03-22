@@ -79,7 +79,11 @@ func (idx *ChainIndexer) tick(ctx context.Context, cursor uint64) (uint64, bool,
 		return cursor, false, fmt.Errorf("FilterLogs: %w", err)
 	}
 
-	_ = logs // dispatch in next chunk
+	for _, log := range logs {
+		if err := idx.registry.HandleLog(ctx, idx.chainID, log, idx.store); err != nil {
+			return cursor, false, fmt.Errorf("HandleLog: %w", err)
+		}
+	}
 
 	return to, to >= safeHead, nil
 }
