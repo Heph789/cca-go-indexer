@@ -115,5 +115,33 @@ func (idx *ChainIndexer) tick(ctx context.Context, cursor uint64) (uint64, bool,
 
 // Run starts the indexer loop. It blocks until ctx is cancelled.
 func (idx *ChainIndexer) Run(ctx context.Context) error {
-	panic("not implemented")
+	cursor, _, err := idx.store.CursorRepo().Get(ctx, idx.chainID)
+	if err != nil {
+		return fmt.Errorf("CursorRepo.Get: %w", err)
+	}
+	if cursor == 0 && idx.config.StartBlock > 0 {
+		cursor = idx.config.StartBlock - 1
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		newCursor, atHead, err := idx.tick(ctx, cursor)
+		if err != nil {
+			return err
+		}
+		cursor = newCursor
+
+		if atHead {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+			}
+		}
+	}
 }
