@@ -2,6 +2,7 @@
 package cca
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -9,17 +10,31 @@ import (
 
 // Auction represents a decoded AuctionCreated event.
 type Auction struct {
-	AuctionAddress  common.Address
-	TokenOut        common.Address
-	CurrencyIn      common.Address
-	Owner           common.Address
-	StartTime       uint64
-	EndTime         uint64
-	EmitterContract common.Address // contract address that emitted the event
+	// From event indexed params
+	AuctionAddress common.Address
+	Token          common.Address
 
-	ChainID     int64
-	BlockNumber uint64
-	TxHash      common.Hash
-	LogIndex    uint
-	CreatedAt   time.Time
+	// From event non-indexed params
+	TotalSupply *big.Int // "amount" in event = total token supply
+
+	// From decoded configData (AuctionParameters)
+	Currency               common.Address
+	TokensRecipient        common.Address
+	FundsRecipient         common.Address
+	StartBlock             uint64
+	EndBlock               uint64
+	ClaimBlock             uint64
+	TickSpacingQ96         *big.Int
+	ValidationHook         common.Address
+	FloorPriceQ96          *big.Int
+	RequiredCurrencyRaised *big.Int // raw uint128, not Q96
+	AuctionStepsData       []byte
+
+	// Metadata from log
+	EmitterContract common.Address
+	ChainID         int64
+	BlockNumber     uint64
+	TxHash          common.Hash
+	LogIndex        uint
+	CreatedAt       time.Time
 }
