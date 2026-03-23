@@ -142,15 +142,25 @@ func (f *fakeBlockRepo) DeleteFrom(_ context.Context, _ int64, _ uint64) error {
 
 // --- fakeAuctionRepo ---
 
-type fakeAuctionRepo struct{}
+type fakeAuctionRepo struct {
+	insertCalls []*cca.Auction
+}
 
-func (f *fakeAuctionRepo) Insert(_ context.Context, _ *cca.Auction) error { return nil }
+func (f *fakeAuctionRepo) Insert(_ context.Context, a *cca.Auction) error {
+	f.insertCalls = append(f.insertCalls, a)
+	return nil
+}
 
 // --- fakeRawEventRepo ---
 
-type fakeRawEventRepo struct{}
+type fakeRawEventRepo struct {
+	insertCalls []*cca.RawEvent
+}
 
-func (f *fakeRawEventRepo) Insert(_ context.Context, _ *cca.RawEvent) error { return nil }
+func (f *fakeRawEventRepo) Insert(_ context.Context, e *cca.RawEvent) error {
+	f.insertCalls = append(f.insertCalls, e)
+	return nil
+}
 
 // --- fakeEventHandler ---
 
