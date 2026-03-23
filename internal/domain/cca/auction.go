@@ -9,12 +9,13 @@ import (
 
 // Auction represents a decoded AuctionCreated event.
 type Auction struct {
-	AuctionAddress common.Address
-	TokenOut       common.Address
-	CurrencyIn     common.Address
-	Owner          common.Address
-	StartTime      uint64
-	EndTime        uint64
+	AuctionAddress  common.Address
+	TokenOut        common.Address
+	CurrencyIn      common.Address
+	Owner           common.Address
+	StartTime       uint64
+	EndTime         uint64
+	EmitterContract common.Address // contract address that emitted the event
 
 	ChainID     int64
 	BlockNumber uint64
