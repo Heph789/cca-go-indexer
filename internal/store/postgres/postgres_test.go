@@ -85,6 +85,25 @@ func truncateAll(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Migration framework
+// ---------------------------------------------------------------------------
+
+func TestMigrations_GooseVersionTableExists(t *testing.T) {
+	ctx := context.Background()
+
+	var exists bool
+	err := testPool.QueryRow(ctx,
+		"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'goose_db_version')",
+	).Scan(&exists)
+	if err != nil {
+		t.Fatalf("query information_schema: %v", err)
+	}
+	if !exists {
+		t.Fatal("expected goose_db_version table to exist, but it does not; migrations should use goose framework")
+	}
+}
+
+// ---------------------------------------------------------------------------
 // CursorRepo
 // ---------------------------------------------------------------------------
 
