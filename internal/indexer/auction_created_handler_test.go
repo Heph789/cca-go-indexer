@@ -1,5 +1,20 @@
 package indexer
 
+// auction_created_handler_test.go tests the AuctionCreatedHandler — the
+// component that decodes AuctionCreated logs emitted by the CCA factory
+// contract into domain objects (Auction and RawEvent) and persists them.
+//
+// Test strategy:
+//   - TestAuctionCreatedHandler_Identity: smoke test that EventName and EventID
+//     return the correct values (guards against accidental signature changes).
+//   - TestAuctionCreatedHandler_Handle: end-to-end decode test that constructs
+//     a synthetic ABI-encoded log, runs it through Handle(), and verifies the
+//     decoded Auction and RawEvent match expected values.
+//
+// The Handle test uses go-ethereum's abi package to encode the log data the
+// same way a real Solidity contract would, making the test realistic without
+// requiring an actual deployed contract.
+
 import (
 	"context"
 	"math/big"
@@ -15,7 +30,12 @@ import (
 	"github.com/cca/go-indexer/internal/domain/cca"
 )
 
-// TestAuctionCreatedHandler_Identity verifies EventName and EventID.
+// TestAuctionCreatedHandler_Identity verifies that EventName() and EventID()
+// return the correct values.
+//
+// EventID must be the keccak256 of the exact Solidity signature string
+// "AuctionCreated(address,address,uint256,bytes)". If the signature ever
+// changes (e.g. adding a parameter), this test will catch the mismatch.
 func TestAuctionCreatedHandler_Identity(t *testing.T) {
 	h := &AuctionCreatedHandler{}
 
@@ -29,17 +49,34 @@ func TestAuctionCreatedHandler_Identity(t *testing.T) {
 	}
 }
 
-// TestAuctionCreatedHandler_Handle verifies that Handle decodes a synthetic
-// AuctionCreated log into the correct Auction and RawEvent, and inserts both.
+// TestAuctionCreatedHandler_Handle verifies full decoding of a synthetic
+// AuctionCreated log.
+//
+// This test mirrors what happens on-chain:
+//  1. We define all the auction parameters (addresses, block ranges, prices).
+//  2. We ABI-encode the configData bytes (the nested AuctionParameters struct).
+//  3. We ABI-encode the log.Data field (uint256 amount, bytes configData).
+//  4. We construct a types.Log with the correct topics (event ID + indexed params).
+//  5. We call Handle() and verify the decoded Auction and RawEvent.
+//
+// The test uses go-cmp for structural comparison, with:
+//   - A custom comparer for *big.Int (since reflect.DeepEqual doesn't work for big.Int)
+//   - cmpopts.IgnoreFields to skip time-dependent fields (CreatedAt, IndexedAt)
+//     and fields derived from raw data (TopicsJSON, DataHex, DecodedJSON)
 func TestAuctionCreatedHandler_Handle(t *testing.T) {
 	h := &AuctionCreatedHandler{}
 	s := newFakeStore()
 
-	// Test values
+	// --- Define test values for every field in the AuctionCreated event ---
+
+	// Indexed parameters (stored in log topics, not data)
 	auctionAddr := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	tokenAddr := common.HexToAddress("0x2222222222222222222222222222222222222222")
+
+	// Non-indexed parameter in log.Data
 	totalSupply := big.NewInt(1000000)
 
+	// Fields inside the nested configData (AuctionParameters struct)
 	currency := common.HexToAddress("0x3333333333333333333333333333333333333333")
 	tokensRecipient := common.HexToAddress("0x4444444444444444444444444444444444444444")
 	fundsRecipient := common.HexToAddress("0x5555555555555555555555555555555555555555")
@@ -52,7 +89,9 @@ func TestAuctionCreatedHandler_Handle(t *testing.T) {
 	requiredCurrencyRaised := big.NewInt(999)
 	auctionStepsData := []byte{0x01, 0x02, 0x03}
 
-	// ABI-encode configData (AuctionParameters tuple)
+	// --- Step 1: ABI-encode configData (the nested AuctionParameters struct) ---
+	// This mirrors the Solidity struct encoding: each field is ABI-encoded
+	// sequentially as if it were a function call with these parameter types.
 	configDataArgs := abi.Arguments{
 		{Type: mustABIType("address")},  // currency
 		{Type: mustABIType("address")},  // tokensRecipient
@@ -76,40 +115,46 @@ func TestAuctionCreatedHandler_Handle(t *testing.T) {
 		t.Fatalf("failed to pack configData: %v", err)
 	}
 
-	// ABI-encode log.Data: (uint256 amount, bytes configData)
+	// --- Step 2: ABI-encode log.Data (amount + configData bytes) ---
+	// The log's data field contains two non-indexed parameters:
+	//   - uint256 amount (the total token supply)
+	//   - bytes configData (the ABI-encoded AuctionParameters from step 1)
 	logDataArgs := abi.Arguments{
-		{Type: mustABIType("uint256")}, // amount
-		{Type: mustABIType("bytes")},   // configData
+		{Type: mustABIType("uint256")},
+		{Type: mustABIType("bytes")},
 	}
 	logData, err := logDataArgs.Pack(totalSupply, configData)
 	if err != nil {
 		t.Fatalf("failed to pack log data: %v", err)
 	}
 
+	// --- Step 3: Build the synthetic Ethereum log ---
+	// This mimics what eth_getLogs returns for a real AuctionCreated event.
 	factoryAddr := common.HexToAddress("0xCCccCcCAE7503Cac057829BF2811De42E16e0bD5")
 	txHash := common.HexToHash("0xabcd")
 	blockHash := common.HexToHash("0xef01")
 
 	log := types.Log{
-		Address: factoryAddr,
+		Address: factoryAddr, // the CCA factory contract that emitted the event
 		Topics: []common.Hash{
-			h.EventID(),
-			common.BytesToHash(auctionAddr.Bytes()),
-			common.BytesToHash(tokenAddr.Bytes()),
+			h.EventID(),                                  // topic0: event signature hash
+			common.BytesToHash(auctionAddr.Bytes()),      // topic1: indexed auction address
+			common.BytesToHash(tokenAddr.Bytes()),        // topic2: indexed token address
 		},
 		Data:        logData,
 		BlockNumber: 42,
 		TxHash:      txHash,
 		BlockHash:   blockHash,
-		Index:       7,
+		Index:       7, // log index within the block
 	}
 
+	// --- Step 4: Run Handle() ---
 	chainID := int64(1)
 	if err := h.Handle(context.Background(), chainID, log, s); err != nil {
 		t.Fatalf("Handle() error: %v", err)
 	}
 
-	// Verify Auction was inserted
+	// --- Step 5: Verify the decoded Auction ---
 	if len(s.auction.insertCalls) != 1 {
 		t.Fatalf("expected 1 auction insert, got %d", len(s.auction.insertCalls))
 	}
@@ -136,13 +181,16 @@ func TestAuctionCreatedHandler_Handle(t *testing.T) {
 		LogIndex:               7,
 	}
 
+	// Custom comparer for *big.Int — reflect.DeepEqual doesn't work because
+	// big.Int has unexported fields. This uses Cmp() for value comparison.
 	bigIntComparer := cmp.Comparer(func(a, b *big.Int) bool { return a.Cmp(b) == 0 })
 
+	// Ignore CreatedAt because it's set to time.Now() inside Handle().
 	if diff := cmp.Diff(wantAuction, s.auction.insertCalls[0], bigIntComparer, cmpopts.IgnoreFields(cca.Auction{}, "CreatedAt")); diff != "" {
 		t.Errorf("Auction mismatch (-want +got):\n%s", diff)
 	}
 
-	// Verify RawEvent was inserted
+	// --- Step 6: Verify the RawEvent ---
 	if len(s.rawEvent.insertCalls) != 1 {
 		t.Fatalf("expected 1 raw event insert, got %d", len(s.rawEvent.insertCalls))
 	}
@@ -157,6 +205,9 @@ func TestAuctionCreatedHandler_Handle(t *testing.T) {
 		EventName:   "AuctionCreated",
 	}
 
+	// Ignore fields that are derived from the raw log data (TopicsJSON, DataHex)
+	// and time-dependent fields (IndexedAt) — those are tested implicitly by
+	// the fact that Insert was called successfully.
 	if diff := cmp.Diff(wantRawEvent, s.rawEvent.insertCalls[0], cmpopts.IgnoreFields(cca.RawEvent{}, "TopicsJSON", "DataHex", "DecodedJSON", "IndexedAt")); diff != "" {
 		t.Errorf("RawEvent mismatch (-want +got):\n%s", diff)
 	}
@@ -168,6 +219,7 @@ func TestAuctionCreatedHandler_Handle(t *testing.T) {
 // - TestAuctionCreatedHandler_Handle_InvalidConfigData (configData that fails ABI decode)
 
 // mustABIType is a test helper that parses an ABI type string or panics.
+// Used only in test setup to build abi.Arguments for encoding synthetic logs.
 func mustABIType(t string) abi.Type {
 	typ, err := abi.NewType(t, "", nil)
 	if err != nil {

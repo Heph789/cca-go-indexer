@@ -6,12 +6,14 @@ import (
 	"github.com/cca/go-indexer/internal/domain/cca"
 )
 
-// AuctionRepo implements store.AuctionRepository.
+// AuctionRepo implements store.AuctionRepository backed by the "auctions" table.
 type AuctionRepo struct {
 	db querier
 }
 
-// Insert stores an auction record.
+// Insert stores a decoded auction record. Addresses and big.Int values are
+// converted to their string/hex representations for storage in TEXT/NUMERIC
+// columns, since PostgreSQL has no native Ethereum address type.
 func (r *AuctionRepo) Insert(ctx context.Context, auction *cca.Auction) error {
 	_, err := r.db.Exec(ctx,
 		"INSERT INTO auctions (auction_address, token, total_supply, currency, tokens_recipient, funds_recipient, start_block, end_block, claim_block, tick_spacing_q96, validation_hook, floor_price_q96, required_currency_raised, auction_steps_data, emitter_contract, chain_id, block_number, tx_hash, log_index, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)",

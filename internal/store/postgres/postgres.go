@@ -1,4 +1,8 @@
 // Package postgres implements the store interfaces using PostgreSQL via pgx.
+//
+// The implementation uses a connection pool (pgxpool.Pool) for normal
+// operations and swaps in a pgx.Tx when running inside WithTx, so all
+// sub-repositories transparently participate in the same transaction.
 package postgres
 
 import (
@@ -12,6 +16,8 @@ import (
 )
 
 // querier is the common interface satisfied by both *pgxpool.Pool and pgx.Tx.
+// All repository methods use querier instead of concrete types so they work
+// identically inside and outside a transaction.
 type querier interface {
 	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
@@ -19,6 +25,10 @@ type querier interface {
 }
 
 // Store implements store.Store backed by PostgreSQL.
+//
+// The pool field always points to the connection pool (needed by WithTx to
+// start new transactions). The db field is either the pool (normal mode) or
+// a pgx.Tx (inside WithTx), and is what all repos use for queries.
 type Store struct {
 	pool *pgxpool.Pool
 	db   querier
@@ -41,6 +51,9 @@ func New(ctx context.Context, connString string) (*Store, error) {
 	return s, nil
 }
 
+// migrate runs CREATE TABLE IF NOT EXISTS for all tables. This is a simple
+// approach suitable for early development — a migration framework (e.g. goose)
+// should replace this once the schema stabilizes and needs versioned migrations.
 func (s *Store) migrate(ctx context.Context) error {
 	migrations := []string{
 		`CREATE TABLE IF NOT EXISTS cursors (
@@ -111,12 +124,19 @@ func (s *Store) Close() {
 
 // WithTx runs fn inside a database transaction. If fn returns nil the
 // transaction is committed; otherwise it is rolled back.
+//
+// The txStore passed to fn is a new Store whose db field points to the
+// transaction. Any repos obtained from txStore (e.g. txStore.AuctionRepo())
+// will execute queries within the same tx, ensuring atomicity across all
+// writes in a single tick.
 func (s *Store) WithTx(ctx context.Context, fn func(txStore store.Store) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
 
+	// Create a transactional Store that shares the pool (for nested WithTx,
+	// though currently unused) but routes all queries through the tx.
 	txStore := &Store{pool: s.pool, db: tx}
 
 	if err := fn(txStore); err != nil {
