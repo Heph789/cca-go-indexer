@@ -6,14 +6,12 @@ import (
 	"github.com/cca/go-indexer/internal/domain/cca"
 )
 
-// RawEventRepo implements store.RawEventRepository backed by the "raw_events" table.
-// Raw events are stored verbatim (topics as JSON, data as hex) so they can be
-// replayed or re-decoded without hitting the chain again.
+// RawEventRepo implements store.RawEventRepository.
 type RawEventRepo struct {
 	db querier
 }
 
-// Insert stores a raw event record. Hash types are stored as hex strings.
+// Insert stores a raw event record.
 func (r *RawEventRepo) Insert(ctx context.Context, event *cca.RawEvent) error {
 	_, err := r.db.Exec(ctx,
 		"INSERT INTO raw_events (chain_id, block_number, block_hash, tx_hash, log_index, address, event_name, topics_json, data_hex, decoded_json, indexed_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",

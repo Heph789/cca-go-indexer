@@ -1,31 +1,5 @@
 package postgres_test
 
-// postgres_test.go contains integration tests for the PostgreSQL store
-// implementation. These tests run against a real PostgreSQL instance via
-// testcontainers — a Docker container is started before the test suite and
-// torn down afterward.
-//
-// Why integration tests (not mocks)?
-//   The store layer is thin SQL — the interesting behavior lives in the
-//   database (upsert semantics, cascading deletes, type coercion). Mocking
-//   the DB would test nothing useful. By running against real Postgres we
-//   verify that the SQL is correct, the types are compatible, and the
-//   transactional semantics work as expected.
-//
-// Test isolation:
-//   Each test calls truncateAll() at the start to clear all tables, so tests
-//   are independent and can run in any order. This is simpler than per-test
-//   transactions because some tests (WithTx) need to control their own
-//   transaction boundaries.
-//
-// Verification approach:
-//   Tests insert data through the store interface and then verify it using
-//   either:
-//     (a) The same store interface (round-trip tests like Upsert→Get), or
-//     (b) A separate pgxpool connection (testPool) with raw SQL queries.
-//   Approach (b) avoids testing the read path with the write path and gives
-//   us ground-truth verification of what's actually in the database.
-
 import (
 	"context"
 	"fmt"
@@ -48,27 +22,14 @@ import (
 )
 
 var (
-	testStore   store.Store         // the store under test (uses the store interface, not concrete type)
-	testPool    *pgxpool.Pool       // separate connection pool for raw SQL verification queries
-	pgContainer testcontainers.Container // the Docker container running Postgres
+	testStore   store.Store
+	testPool    *pgxpool.Pool
+	pgContainer testcontainers.Container
 )
 
-// TestMain sets up the test environment before any tests run and tears it down
-// after all tests complete. This is the standard Go pattern for expensive
-// per-suite setup.
-//
-// Lifecycle:
-//  1. Start a Postgres 16 container via testcontainers.
-//  2. Create a store (which runs migrations, creating all tables).
-//  3. Create a separate pgxpool for verification queries.
-//  4. Run all tests.
-//  5. Clean up: close pools, terminate the container.
 func TestMain(m *testing.M) {
 	ctx := context.Background()
 
-	// Start a Postgres container. The wait strategy waits for the "ready to
-	// accept connections" log message to appear twice — once for the initial
-	// startup and once after Postgres restarts to apply configuration.
 	container, err := tcpostgres.Run(ctx,
 		"postgres:16-alpine",
 		tcpostgres.WithDatabase("testdb"),
@@ -90,16 +51,12 @@ func TestMain(m *testing.M) {
 		log.Fatalf("failed to get connection string: %v", err)
 	}
 
-	// Create the store under test — this also runs migrations.
 	s, err := postgres.New(ctx, connStr)
 	if err != nil {
 		log.Fatalf("failed to create store: %v", err)
 	}
 	testStore = s
 
-	// Create a separate pool for verification queries. Using a different
-	// connection ensures we're reading committed data, not seeing uncommitted
-	// changes from the store's connection.
 	pool, err := pgxpool.New(ctx, connStr)
 	if err != nil {
 		log.Fatalf("failed to create verification pool: %v", err)
@@ -108,7 +65,6 @@ func TestMain(m *testing.M) {
 
 	code := m.Run()
 
-	// Cleanup
 	pool.Close()
 	s.Close()
 	if err := container.Terminate(ctx); err != nil {
@@ -118,8 +74,7 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// truncateAll removes all data from every table so each test starts with a
-// clean slate. Using TRUNCATE (not DELETE) is faster and resets sequences.
+// truncateAll removes all data from every table so tests are isolated.
 func truncateAll(t *testing.T) {
 	t.Helper()
 	ctx := context.Background()
@@ -129,13 +84,10 @@ func truncateAll(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// CursorRepo tests
-// ===========================================================================
+// ---------------------------------------------------------------------------
+// CursorRepo
+// ---------------------------------------------------------------------------
 
-// TestCursorRepo_GetReturnsZeroOnEmpty verifies that Get returns zero values
-// when no cursor has been saved for a chain. This is the "first run" case —
-// the indexer uses these zero values to know it needs to start from StartBlock.
 func TestCursorRepo_GetReturnsZeroOnEmpty(t *testing.T) {
 	truncateAll(t)
 
@@ -152,19 +104,13 @@ func TestCursorRepo_GetReturnsZeroOnEmpty(t *testing.T) {
 	}
 }
 
-// TestCursorRepo_UpsertAndGetRoundTrip verifies that:
-//  1. Upsert creates a new cursor row and Get retrieves it correctly.
-//  2. A second Upsert overwrites the existing row (ON CONFLICT DO UPDATE).
-//
-// This is a round-trip test (write via store, read via store) that validates
-// the upsert SQL and the scan logic together.
 func TestCursorRepo_UpsertAndGetRoundTrip(t *testing.T) {
 	truncateAll(t)
 
 	ctx := context.Background()
 	chainID := int64(324)
 
-	// First upsert — creates the row.
+	// First upsert
 	if err := testStore.CursorRepo().Upsert(ctx, chainID, 100, "0xaaa"); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
@@ -179,7 +125,7 @@ func TestCursorRepo_UpsertAndGetRoundTrip(t *testing.T) {
 		t.Errorf("expected blockHash 0xaaa, got %q", blockHash)
 	}
 
-	// Second upsert — overwrites the existing row with new values.
+	// Second upsert overwrites
 	if err := testStore.CursorRepo().Upsert(ctx, chainID, 200, "0xbbb"); err != nil {
 		t.Fatalf("upsert overwrite: %v", err)
 	}
@@ -195,12 +141,10 @@ func TestCursorRepo_UpsertAndGetRoundTrip(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// BlockRepo tests
-// ===========================================================================
+// ---------------------------------------------------------------------------
+// BlockRepo
+// ---------------------------------------------------------------------------
 
-// TestBlockRepo_InsertAndGetHash verifies that a block can be inserted and
-// its hash retrieved by chain ID and block number.
 func TestBlockRepo_InsertAndGetHash(t *testing.T) {
 	truncateAll(t)
 
@@ -220,19 +164,12 @@ func TestBlockRepo_InsertAndGetHash(t *testing.T) {
 	}
 }
 
-// TestBlockRepo_DeleteFrom verifies that DeleteFrom removes blocks at or above
-// the specified block number while leaving earlier blocks intact.
-//
-// This is used during reorg recovery: when the indexer detects that block N
-// has a different hash than what it stored, it deletes blocks from N onward
-// and re-processes them.
 func TestBlockRepo_DeleteFrom(t *testing.T) {
 	truncateAll(t)
 
 	ctx := context.Background()
 	chainID := int64(324)
 
-	// Insert 3 consecutive blocks: 10, 11, 12
 	for _, bn := range []uint64{10, 11, 12} {
 		hash := fmt.Sprintf("0xhash%d", bn)
 		parent := fmt.Sprintf("0xparent%d", bn)
@@ -241,12 +178,11 @@ func TestBlockRepo_DeleteFrom(t *testing.T) {
 		}
 	}
 
-	// Delete from block 11 onward (blocks 11 and 12 should be removed)
 	if err := testStore.BlockRepo().DeleteFrom(ctx, chainID, 11); err != nil {
 		t.Fatalf("delete from: %v", err)
 	}
 
-	// Block 10 should still exist (it's below the delete threshold).
+	// Block 10 should still exist
 	hash, err := testStore.BlockRepo().GetHash(ctx, chainID, 10)
 	if err != nil {
 		t.Fatalf("get hash for block 10: %v", err)
@@ -255,7 +191,7 @@ func TestBlockRepo_DeleteFrom(t *testing.T) {
 		t.Errorf("expected 0xhash10, got %q", hash)
 	}
 
-	// Blocks 11 and 12 should be gone (GetHash returns "" for missing blocks).
+	// Blocks 11 and 12 should be gone
 	for _, bn := range []uint64{11, 12} {
 		h, err := testStore.BlockRepo().GetHash(ctx, chainID, bn)
 		if err != nil {
@@ -267,21 +203,15 @@ func TestBlockRepo_DeleteFrom(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// RawEventRepo tests
-// ===========================================================================
+// ---------------------------------------------------------------------------
+// RawEventRepo
+// ---------------------------------------------------------------------------
 
-// TestRawEventRepo_Insert verifies that a raw event can be inserted and
-// its key fields are correctly stored in the database.
-//
-// Verification uses raw SQL (via testPool) rather than the store interface
-// to ensure we're testing what's actually persisted, not just that the
-// read path mirrors the write path.
 func TestRawEventRepo_Insert(t *testing.T) {
 	truncateAll(t)
 
 	ctx := context.Background()
-	now := time.Now().UTC().Truncate(time.Microsecond) // Postgres has microsecond precision
+	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	event := &cca.RawEvent{
 		ChainID:     324,
@@ -301,7 +231,7 @@ func TestRawEventRepo_Insert(t *testing.T) {
 		t.Fatalf("insert raw event: %v", err)
 	}
 
-	// Verify key fields with a raw SQL query against the verification pool.
+	// Verify with raw SQL
 	var (
 		chainID     int64
 		blockNumber uint64
@@ -329,16 +259,12 @@ func TestRawEventRepo_Insert(t *testing.T) {
 	}
 }
 
-// TestRawEventRepo_DeleteFromBlock verifies that DeleteFromBlock removes events
-// at or above the specified block while keeping earlier events.
-// Same pattern as TestBlockRepo_DeleteFrom — validates reorg recovery behavior.
 func TestRawEventRepo_DeleteFromBlock(t *testing.T) {
 	truncateAll(t)
 
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
-	// Insert events at blocks 5 and 6
 	for _, bn := range []uint64{5, 6} {
 		event := &cca.RawEvent{
 			ChainID:     324,
@@ -358,7 +284,6 @@ func TestRawEventRepo_DeleteFromBlock(t *testing.T) {
 		}
 	}
 
-	// Delete from block 6 onward
 	if err := testStore.RawEventRepo().DeleteFromBlock(ctx, 324, 6); err != nil {
 		t.Fatalf("delete from block: %v", err)
 	}
@@ -383,13 +308,10 @@ func TestRawEventRepo_DeleteFromBlock(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// AuctionRepo tests
-// ===========================================================================
+// ---------------------------------------------------------------------------
+// AuctionRepo
+// ---------------------------------------------------------------------------
 
-// newTestAuction builds a fully-populated Auction for testing. The blockNumber
-// parameter varies per test so multiple auctions can coexist without primary
-// key conflicts (the PK is chain_id + block_number + log_index).
 func newTestAuction(blockNumber uint64) *cca.Auction {
 	return &cca.Auction{
 		AuctionAddress:        common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
@@ -401,7 +323,7 @@ func newTestAuction(blockNumber uint64) *cca.Auction {
 		StartBlock:            100,
 		EndBlock:              200,
 		ClaimBlock:            250,
-		TickSpacingQ96:        new(big.Int).Lsh(big.NewInt(1), 96), // 1 << 96 (Q96 format)
+		TickSpacingQ96:        new(big.Int).Lsh(big.NewInt(1), 96), // 1 << 96
 		ValidationHook:        common.HexToAddress("0x0000000000000000000000000000000000000000"),
 		FloorPriceQ96:         func() *big.Int { v, _ := new(big.Int).SetString("7922816251426433759354395034", 10); return v }(),
 		RequiredCurrencyRaised: big.NewInt(500_000),
@@ -415,12 +337,6 @@ func newTestAuction(blockNumber uint64) *cca.Auction {
 	}
 }
 
-// TestAuctionRepo_Insert verifies that an auction can be inserted and its key
-// fields are correctly stored.
-//
-// Verification uses raw SQL to check a subset of fields — we don't verify
-// every column, just enough to confirm the INSERT mapped all 20 parameters
-// to the correct columns (addresses as hex strings, big.Int as NUMERIC, etc.).
 func TestAuctionRepo_Insert(t *testing.T) {
 	truncateAll(t)
 
@@ -431,7 +347,7 @@ func TestAuctionRepo_Insert(t *testing.T) {
 		t.Fatalf("insert auction: %v", err)
 	}
 
-	// Verify a representative subset of fields via raw SQL.
+	// Verify key fields with raw SQL
 	var (
 		auctionAddr string
 		token       string
@@ -460,7 +376,6 @@ func TestAuctionRepo_Insert(t *testing.T) {
 		t.Errorf("block_number: expected 5, got %d", blockNumber)
 	}
 
-	// big.Int is stored as NUMERIC text — verify it round-trips correctly.
 	wantSupply := auction.TotalSupply.String()
 	if totalSupply != wantSupply {
 		t.Errorf("total_supply: expected %s, got %s", wantSupply, totalSupply)
@@ -473,29 +388,23 @@ func TestAuctionRepo_Insert(t *testing.T) {
 	}
 }
 
-// TestAuctionRepo_DeleteFromBlock verifies that DeleteFromBlock removes auctions
-// at or above the specified block while keeping earlier ones.
 func TestAuctionRepo_DeleteFromBlock(t *testing.T) {
 	truncateAll(t)
 
 	ctx := context.Background()
 
-	// Insert auctions at blocks 5 and 6.
-	// We set LogIndex = bn to avoid primary key conflicts (PK includes log_index).
 	for _, bn := range []uint64{5, 6} {
 		a := newTestAuction(bn)
-		a.LogIndex = uint(bn)
+		a.LogIndex = uint(bn) // make unique
 		if err := testStore.AuctionRepo().Insert(ctx, a); err != nil {
 			t.Fatalf("insert auction at block %d: %v", bn, err)
 		}
 	}
 
-	// Delete from block 6 onward
 	if err := testStore.AuctionRepo().DeleteFromBlock(ctx, 324, 6); err != nil {
 		t.Fatalf("delete from block: %v", err)
 	}
 
-	// Block 5 auction should remain
 	var count int
 	err := testPool.QueryRow(ctx, "SELECT count(*) FROM auctions WHERE chain_id = $1 AND block_number = $2", int64(324), uint64(5)).Scan(&count)
 	if err != nil {
@@ -505,7 +414,6 @@ func TestAuctionRepo_DeleteFromBlock(t *testing.T) {
 		t.Errorf("expected 1 auction at block 5, got %d", count)
 	}
 
-	// Block 6 auction should be gone
 	err = testPool.QueryRow(ctx, "SELECT count(*) FROM auctions WHERE chain_id = $1 AND block_number = $2", int64(324), uint64(6)).Scan(&count)
 	if err != nil {
 		t.Fatalf("count block 6: %v", err)
@@ -515,12 +423,10 @@ func TestAuctionRepo_DeleteFromBlock(t *testing.T) {
 	}
 }
 
-// ===========================================================================
-// WithTx tests
-// ===========================================================================
+// ---------------------------------------------------------------------------
+// WithTx
+// ---------------------------------------------------------------------------
 
-// TestWithTx_CommitOnSuccess verifies that when the callback returns nil,
-// the transaction is committed and data persists.
 func TestWithTx_CommitOnSuccess(t *testing.T) {
 	truncateAll(t)
 
@@ -533,7 +439,7 @@ func TestWithTx_CommitOnSuccess(t *testing.T) {
 		t.Fatalf("WithTx: %v", err)
 	}
 
-	// Data should be visible after WithTx returns (tx was committed).
+	// Data should persist after WithTx returns
 	blockNum, blockHash, err := testStore.CursorRepo().Get(ctx, 324)
 	if err != nil {
 		t.Fatalf("get after commit: %v", err)
@@ -546,12 +452,6 @@ func TestWithTx_CommitOnSuccess(t *testing.T) {
 	}
 }
 
-// TestWithTx_RollbackOnError verifies that when the callback returns an error,
-// the transaction is rolled back and no data persists.
-//
-// This is critical for the indexer's atomicity guarantee: if any write fails
-// during a tick, the entire tick's changes are discarded and the cursor is
-// not advanced, so the tick can be retried safely.
 func TestWithTx_RollbackOnError(t *testing.T) {
 	truncateAll(t)
 
@@ -559,18 +459,16 @@ func TestWithTx_RollbackOnError(t *testing.T) {
 
 	rollbackErr := fmt.Errorf("intentional failure")
 	err := testStore.WithTx(ctx, func(txStore store.Store) error {
-		// This write happens inside the transaction...
 		if uErr := txStore.CursorRepo().Upsert(ctx, 324, 99, "0xrolledback"); uErr != nil {
 			t.Fatalf("upsert in tx: %v", uErr)
 		}
-		// ...but the callback returns an error, triggering rollback.
 		return rollbackErr
 	})
 	if err == nil {
 		t.Fatal("expected error from WithTx, got nil")
 	}
 
-	// Data should NOT persist — the transaction was rolled back.
+	// Data should NOT persist
 	blockNum, blockHash, err := testStore.CursorRepo().Get(ctx, 324)
 	if err != nil {
 		t.Fatalf("get after rollback: %v", err)

@@ -7,14 +7,12 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// BlockRepo implements store.BlockRepository backed by the "blocks" table.
-// Each row records a block's hash and parent hash, which the indexer uses
-// to detect chain reorganizations.
+// BlockRepo implements store.BlockRepository.
 type BlockRepo struct {
 	db querier
 }
 
-// Insert stores a block record (chain_id, block_number, block_hash, parent_hash).
+// Insert stores a block record.
 func (r *BlockRepo) Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error {
 	_, err := r.db.Exec(ctx,
 		"INSERT INTO blocks (chain_id, block_number, block_hash, parent_hash) VALUES ($1, $2, $3, $4)",
