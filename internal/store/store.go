@@ -21,11 +21,13 @@ type Store interface {
 // AuctionRepository handles persistence of decoded AuctionCreated events.
 type AuctionRepository interface {
 	Insert(ctx context.Context, auction *cca.Auction) error
+	DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error
 }
 
 // RawEventRepository handles persistence of raw log data.
 type RawEventRepository interface {
 	Insert(ctx context.Context, event *cca.RawEvent) error
+	DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error
 }
 
 // CursorRepository tracks per-chain indexing progress.
