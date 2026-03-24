@@ -16,6 +16,7 @@ type Store interface {
 	CursorRepo() CursorRepository
 	BlockRepo() BlockRepository
 	WithTx(ctx context.Context, fn func(txStore Store) error) error
+	Close()
 }
 
 // AuctionRepository handles persistence of decoded AuctionCreated events.

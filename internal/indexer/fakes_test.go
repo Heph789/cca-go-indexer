@@ -70,6 +70,8 @@ func (f *fakeStore) RawEventRepo() store.RawEventRepository { return f.rawEvent 
 func (f *fakeStore) CursorRepo() store.CursorRepository     { return f.cursor }
 func (f *fakeStore) BlockRepo() store.BlockRepository        { return f.block }
 
+func (f *fakeStore) Close() {}
+
 func (f *fakeStore) WithTx(_ context.Context, fn func(store.Store) error) error {
 	f.inTx = true
 	defer func() { f.inTx = false }()

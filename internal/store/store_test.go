@@ -10,9 +10,7 @@ import (
 // Close() method. This is a compile-time contract: if Close() is missing from
 // the interface, this test file will not compile.
 func TestStoreInterfaceHasClose(t *testing.T) {
-	// Obtain a nil store.Store value. We only care that the method exists on
-	// the interface; we do not call it.
-	var s store.Store
-	// Assign Close to a variable so the compiler proves the method exists.
-	_ = s.Close
+	// Use a method expression so the compiler proves Close exists on the
+	// interface without requiring a non-nil receiver.
+	var _ func(store.Store) = store.Store.Close
 }
