@@ -1,11 +1,11 @@
 -- +goose Up
-CREATE TABLE IF NOT EXISTS cursors (
+CREATE TABLE cursors (
 	chain_id BIGINT PRIMARY KEY,
 	block_number BIGINT NOT NULL DEFAULT 0,
 	block_hash TEXT NOT NULL DEFAULT ''
 );
 
-CREATE TABLE IF NOT EXISTS blocks (
+CREATE TABLE blocks (
 	chain_id BIGINT NOT NULL,
 	block_number BIGINT NOT NULL,
 	block_hash TEXT NOT NULL,
@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS blocks (
 	PRIMARY KEY (chain_id, block_number)
 );
 
-CREATE TABLE IF NOT EXISTS raw_events (
+CREATE TABLE raw_events (
 	chain_id BIGINT NOT NULL,
 	block_number BIGINT NOT NULL,
 	block_hash TEXT NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS raw_events (
 	PRIMARY KEY (chain_id, block_number, log_index)
 );
 
-CREATE TABLE IF NOT EXISTS auctions (
+CREATE TABLE auctions (
 	auction_address TEXT NOT NULL,
 	token TEXT NOT NULL,
 	total_supply NUMERIC NOT NULL,

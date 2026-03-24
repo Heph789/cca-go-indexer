@@ -5,6 +5,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"io/fs"
 
 	"github.com/cca/go-indexer/internal/store"
 	"github.com/jackc/pgx/v5"
@@ -51,11 +52,15 @@ func (s *Store) migrate(ctx context.Context) error {
 	db := stdlib.OpenDBFromPool(s.pool)
 	defer db.Close()
 
-	goose.SetBaseFS(migrations)
-	if err := goose.SetDialect("postgres"); err != nil {
-		return fmt.Errorf("goose set dialect: %w", err)
+	migrationFS, err := fs.Sub(migrations, "migrations")
+	if err != nil {
+		return fmt.Errorf("fs.Sub: %w", err)
 	}
-	if err := goose.UpContext(ctx, db, "migrations"); err != nil {
+	provider, err := goose.NewProvider(goose.DialectPostgres, db, migrationFS)
+	if err != nil {
+		return fmt.Errorf("goose new provider: %w", err)
+	}
+	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("goose up: %w", err)
 	}
 	return nil
