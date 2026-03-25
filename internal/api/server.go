@@ -49,7 +49,10 @@ func NewServer(cfg ServerConfig, st store.Store, logger *slog.Logger) *Server {
 	// --- Route registration ---
 	mux := http.NewServeMux()
 
-	// Health probes (root level, not versioned — infrastructure concern)
+	// Health probes are registered directly on the mux, bypassing the
+	// middleware chain (CORS, request ID, recovery, logging). This means
+	// /health and /ready only verify server-level reachability and DB
+	// connectivity — they will NOT surface middleware misconfiguration.
 	mux.HandleFunc("GET /health", healthHandler.Health)
 	mux.HandleFunc("GET /ready", healthHandler.Ready)
 
