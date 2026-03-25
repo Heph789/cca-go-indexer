@@ -31,7 +31,7 @@ CREATE INDEX idx_raw_events_event ON raw_events (chain_id, event_name);
 
 -- Auctions: decoded AuctionCreated events.
 -- Each event type gets its own table — simple, typed queries, no JSON decoding at read time.
-CREATE TABLE auctions (
+CREATE TABLE event_ccaf_auction_created (
     chain_id        BIGINT NOT NULL,
     auction_address TEXT   NOT NULL,
     token_out       TEXT   NOT NULL,

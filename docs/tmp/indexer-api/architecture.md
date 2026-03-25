@@ -40,7 +40,7 @@ Blockchain (RPC)
 |                                              |
 |  indexer_cursors    — per-chain progress      |
 |  raw_events         — audit trail            |
-|  auctions           — decoded events         |
+|  event_ccaf_auction_created — decoded events       |
 |  indexed_blocks     — reorg detection        |
 |  watched_contracts  — dynamic address list   |
 +----------------------------------------------+

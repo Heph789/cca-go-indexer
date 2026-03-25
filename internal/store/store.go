@@ -34,6 +34,12 @@ type AuctionRepository interface {
 	// DeleteFromBlock removes all auctions at or after fromBlock.
 	// Used during reorg rollback.
 	DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error
+
+	// --- Read methods (used by the API layer) ---
+
+	// GetByAddress returns a single auction by its on-chain address.
+	// Returns (nil, nil) if no auction exists with that address.
+	GetByAddress(ctx context.Context, chainID int64, auctionAddress string) (*cca.Auction, error)
 }
 
 // RawEventRepository handles persistence of raw log data.

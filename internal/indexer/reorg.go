@@ -89,7 +89,7 @@ func handleReorg(ctx context.Context, logger *slog.Logger, ethClient eth.Client,
 			return fmt.Errorf("delete raw events: %w", err)
 		}
 		if err := txStore.AuctionRepo().DeleteFromBlock(ctx, chainID, rollbackFrom); err != nil {
-			return fmt.Errorf("delete auctions: %w", err)
+			return fmt.Errorf("delete event_ccaf_auction_created: %w", err)
 		}
 		if err := txStore.BlockRepo().DeleteFrom(ctx, chainID, rollbackFrom); err != nil {
 			return fmt.Errorf("delete blocks: %w", err)

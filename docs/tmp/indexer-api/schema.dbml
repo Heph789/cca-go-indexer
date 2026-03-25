@@ -27,7 +27,7 @@ Table raw_events {
   }
 }
 
-Table auctions {
+Table event_ccaf_auction_created {
   chain_id        bigint  [not null]
   auction_address text    [not null]
   token_out       text    [not null]
@@ -71,4 +71,4 @@ Table watched_contracts {
 // Relationships — all tables share chain_id as a logical partition key.
 // raw_events and auctions reference indexed_blocks by (chain_id, block_number).
 Ref: raw_events.(chain_id, block_number) > indexed_blocks.(chain_id, block_number)
-Ref: auctions.(chain_id, block_number) > indexed_blocks.(chain_id, block_number)
+Ref: event_ccaf_auction_created.(chain_id, block_number) > indexed_blocks.(chain_id, block_number)

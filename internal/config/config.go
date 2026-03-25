@@ -10,9 +10,15 @@ import (
 )
 
 type Config struct {
-	DatabaseURL    string
+	// Shared fields (used by both indexer and API)
+	DatabaseURL string
+	ChainID     int64
+	LogLevel    string
+	LogFormat   string
+	Port        string // API server listen port (default "8080")
+
+	// Indexer-specific fields
 	RPCURL         string
-	ChainID        int64
 	FactoryAddr    string
 	StartBlock     uint64
 	PollInterval   time.Duration
@@ -21,8 +27,6 @@ type Config struct {
 	Confirmations  uint64
 	RPCMaxRetries  int
 	RPCRetryDelay  time.Duration
-	LogLevel       string
-	LogFormat      string
 }
 
 // Load reads config from environment variables.
@@ -35,6 +39,7 @@ func Load() (*Config, error) {
 		FactoryAddr: os.Getenv("FACTORY_ADDRESS"),
 		LogLevel:    envOrDefault("LOG_LEVEL", "info"),
 		LogFormat:   envOrDefault("LOG_FORMAT", "json"),
+		Port:        envOrDefault("PORT", "8080"),
 	}
 
 	// --- Required fields ---
