@@ -39,7 +39,6 @@ func NewServer(cfg ServerConfig, st store.Store, logger *slog.Logger) *Server {
 	auctionHandler := &handlers.AuctionHandler{
 		Store:   st,
 		ChainID: cfg.ChainID,
-		Logger:  logger,
 	}
 	healthHandler := &handlers.HealthHandler{
 		Store:  st,
@@ -64,7 +63,7 @@ func NewServer(cfg ServerConfig, st store.Store, logger *slog.Logger) *Server {
 	var handler http.Handler = mux
 	handler = requestLogger(logger)(handler)
 	handler = recovery(logger)(handler)
-	handler = requestID(handler)
+	handler = requestID(logger)(handler)
 	handler = cors(handler)
 
 	return &Server{

@@ -1,10 +1,10 @@
 package handlers
 
 import (
-	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/cca/go-indexer/internal/api"
 	"github.com/cca/go-indexer/internal/api/httputil"
 	"github.com/cca/go-indexer/internal/domain/cca"
 	"github.com/cca/go-indexer/internal/store"
@@ -16,7 +16,6 @@ import (
 type AuctionHandler struct {
 	Store   store.Store
 	ChainID int64
-	Logger  *slog.Logger
 }
 
 // AuctionResponse is the JSON representation of an auction.
@@ -84,7 +83,7 @@ func (h *AuctionHandler) Get(w http.ResponseWriter, r *http.Request) {
 
 	auction, err := h.Store.AuctionRepo().GetByAddress(r.Context(), h.ChainID, strings.ToLower(address))
 	if err != nil {
-		h.Logger.Error("failed to get auction", "address", address, "error", err)
+		api.LoggerFromContext(r.Context()).Error("failed to get auction", "address", address, "error", err)
 		httputil.WriteError(w, http.StatusInternalServerError, httputil.CodeInternalError, "failed to fetch auction")
 		return
 	}
@@ -93,6 +92,7 @@ func (h *AuctionHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
 	resp := toAuctionResponse(auction)
 	httputil.WriteJSON(w, http.StatusOK, httputil.Response{Data: resp})
 }

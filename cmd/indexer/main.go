@@ -14,6 +14,7 @@ import (
 
 	"github.com/cca/go-indexer/internal/config"
 	"github.com/cca/go-indexer/internal/eth"
+	ilog "github.com/cca/go-indexer/internal/log"
 	"github.com/cca/go-indexer/internal/indexer"
 	"github.com/cca/go-indexer/internal/indexer/handlers"
 	"github.com/cca/go-indexer/internal/store/postgres"
@@ -29,7 +30,7 @@ func main() {
 
 	// --- Step 2: Set up structured logger ---
 	var handler slog.Handler
-	opts := &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)}
+	opts := &slog.HandlerOptions{Level: ilog.ParseLevel(cfg.LogLevel)}
 	if cfg.LogFormat == "text" {
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	} else {
@@ -97,17 +98,4 @@ func main() {
 	}
 
 	logger.Info("indexer stopped")
-}
-
-func parseLogLevel(level string) slog.Level {
-	switch level {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }

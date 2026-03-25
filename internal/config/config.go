@@ -11,11 +11,12 @@ import (
 
 type Config struct {
 	// Shared fields (used by both indexer and API)
-	DatabaseURL string
-	ChainID     int64
-	LogLevel    string
-	LogFormat   string
-	Port        string // API server listen port (default "8080")
+	DatabaseURL     string
+	DatabaseReadURL string // read replica URL for API; falls back to DatabaseURL
+	ChainID         int64
+	LogLevel        string
+	LogFormat       string
+	Port            string // API server listen port (default "8080")
 
 	// Indexer-specific fields
 	RPCURL         string
@@ -34,12 +35,18 @@ type Config struct {
 // Returns an error if any required field is missing.
 func Load() (*Config, error) {
 	cfg := &Config{
-		DatabaseURL: os.Getenv("DATABASE_URL"),
-		RPCURL:      os.Getenv("RPC_URL"),
-		FactoryAddr: os.Getenv("FACTORY_ADDRESS"),
-		LogLevel:    envOrDefault("LOG_LEVEL", "info"),
-		LogFormat:   envOrDefault("LOG_FORMAT", "json"),
-		Port:        envOrDefault("PORT", "8080"),
+		DatabaseURL:     os.Getenv("DATABASE_URL"),
+		DatabaseReadURL: os.Getenv("DATABASE_READ_URL"),
+		RPCURL:          os.Getenv("RPC_URL"),
+		FactoryAddr:     os.Getenv("FACTORY_ADDRESS"),
+		LogLevel:        envOrDefault("LOG_LEVEL", "info"),
+		LogFormat:       envOrDefault("LOG_FORMAT", "json"),
+		Port:            envOrDefault("PORT", "8080"),
+	}
+
+	// Fall back to primary DATABASE_URL if no read replica is configured.
+	if cfg.DatabaseReadURL == "" {
+		cfg.DatabaseReadURL = cfg.DatabaseURL
 	}
 
 	// --- Required fields ---
@@ -64,7 +71,7 @@ func Load() (*Config, error) {
 	cfg.BlockBatchSize = envOrDefaultUint64("BLOCK_BATCH_SIZE", 100)
 	cfg.MaxBlockRange = envOrDefaultUint64("MAX_BLOCK_RANGE", 2000)
 	cfg.Confirmations = envOrDefaultUint64("CONFIRMATIONS", 0)
-	cfg.RPCMaxRetries = envOrDefaultInt("RPC_MAX_RETRIES", 3)
+	cfg.RPCMaxRetries = envOrDefaultInt("RPC_MAX_RETRIES", 5)
 
 	// --- Duration fields ---
 	pollStr := envOrDefault("POLL_INTERVAL", "12s")
@@ -73,7 +80,7 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("invalid POLL_INTERVAL: %w", err)
 	}
 
-	retryDelayStr := envOrDefault("RPC_RETRY_DELAY", "250ms")
+	retryDelayStr := envOrDefault("RPC_RETRY_DELAY", "500ms")
 	cfg.RPCRetryDelay, err = time.ParseDuration(retryDelayStr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid RPC_RETRY_DELAY: %w", err)

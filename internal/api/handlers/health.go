@@ -22,6 +22,7 @@ type HealthHandler struct {
 // Always returns 200. If this fails, the orchestrator should restart the pod.
 // Mounted at GET /health (root level, not under /api/v1).
 func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"ok"}`))
@@ -35,6 +36,7 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	// TODO: h.Store.Ping(r.Context()) — check DB connectivity
 	// If err != nil → 503 {"status":"not_ready","reason":"database unreachable"}
 	// Else → 200 {"status":"ready"}
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"ready"}`))

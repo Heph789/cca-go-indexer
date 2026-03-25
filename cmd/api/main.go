@@ -17,6 +17,7 @@ import (
 
 	"github.com/cca/go-indexer/internal/api"
 	"github.com/cca/go-indexer/internal/config"
+	ilog "github.com/cca/go-indexer/internal/log"
 	"github.com/cca/go-indexer/internal/store/postgres"
 )
 
@@ -33,7 +34,7 @@ func main() {
 
 	// --- Step 2: Set up structured logger ---
 	var handler slog.Handler
-	opts := &slog.HandlerOptions{Level: parseLogLevel(cfg.LogLevel)}
+	opts := &slog.HandlerOptions{Level: ilog.ParseLevel(cfg.LogLevel)}
 	if cfg.LogFormat == "text" {
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	} else {
@@ -42,10 +43,11 @@ func main() {
 	logger := slog.New(handler)
 
 	// --- Step 3: Connect to PostgreSQL ---
-	// The API is read-only against the indexer's database.
+	// The API is read-only — use the read replica URL if configured,
+	// otherwise falls back to the primary DATABASE_URL.
 	// Migrations are owned by the indexer process, not the API.
 	ctx := context.Background()
-	store, err := postgres.New(ctx, cfg.DatabaseURL)
+	store, err := postgres.New(ctx, cfg.DatabaseReadURL)
 	if err != nil {
 		logger.Error("failed to connect to database", "error", err)
 		os.Exit(1)
@@ -83,17 +85,4 @@ func main() {
 	}
 
 	logger.Info("server stopped")
-}
-
-func parseLogLevel(level string) slog.Level {
-	switch level {
-	case "debug":
-		return slog.LevelDebug
-	case "warn":
-		return slog.LevelWarn
-	case "error":
-		return slog.LevelError
-	default:
-		return slog.LevelInfo
-	}
 }

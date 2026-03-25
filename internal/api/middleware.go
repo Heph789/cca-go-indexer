@@ -15,7 +15,10 @@ import (
 // preventing collisions with keys from other packages.
 type contextKey string
 
-const requestIDKey contextKey = "request_id"
+const (
+	requestIDKey contextKey = "request_id"
+	loggerKey    contextKey = "logger"
+)
 
 // RequestIDFromContext extracts the request ID set by the requestID middleware.
 // Returns empty string if not present (e.g. health probes that skip middleware).
@@ -26,20 +29,34 @@ func RequestIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// LoggerFromContext extracts the request-scoped logger set by the requestID
+// middleware. Falls back to slog.Default() if not present.
+func LoggerFromContext(ctx context.Context) *slog.Logger {
+	if l, ok := ctx.Value(loggerKey).(*slog.Logger); ok {
+		return l
+	}
+	return slog.Default()
+}
+
 // requestID assigns a unique ID to each request. If the client sends
 // X-Request-ID, we propagate it (useful for distributed tracing);
 // otherwise we generate one. The ID is set on the response header
-// and stored in context for downstream logging.
-func requestID(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		id := r.Header.Get("X-Request-ID")
-		if id == "" {
-			id = generateID()
-		}
-		w.Header().Set("X-Request-ID", id)
-		ctx := context.WithValue(r.Context(), requestIDKey, id)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+// and stored in context for downstream logging. A request-scoped
+// logger with the request ID is also stored in context.
+func requestID(logger *slog.Logger) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			id := r.Header.Get("X-Request-ID")
+			if id == "" {
+				id = generateID()
+			}
+			w.Header().Set("X-Request-ID", id)
+			reqLogger := logger.With("request_id", id)
+			ctx := context.WithValue(r.Context(), requestIDKey, id)
+			ctx = context.WithValue(ctx, loggerKey, reqLogger)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
 }
 
 // generateID produces a short random hex string for request IDs.

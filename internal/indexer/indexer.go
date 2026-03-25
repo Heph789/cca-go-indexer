@@ -14,6 +14,13 @@ import (
 	"github.com/cca/go-indexer/internal/store"
 )
 
+// maxLoopRetries is the number of times the indexer retries a failed
+// batch before giving up and exiting. Each retry sleeps for PollInterval.
+// Combined with the transport-level retry budget (~24s with defaults),
+// this gives the indexer ~2 minutes of tolerance for sustained outages
+// before crashing and relying on process supervision.
+const maxLoopRetries = 5
+
 // IndexerConfig holds the runtime parameters for a ChainIndexer.
 type IndexerConfig struct {
 	ChainID        int64
@@ -64,6 +71,8 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 	}
 
 	// --- Step 2: Main loop ---
+	consecutiveErrors := 0
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -75,10 +84,27 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 		// 2a. Get chain head from RPC.
 		chainHead, err := idx.ethClient.BlockNumber(ctx)
 		if err != nil {
-			return fmt.Errorf("get block number: %w", err)
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "get block number", err); shouldExit {
+				return fmt.Errorf("get block number (after %d retries): %w", maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
 		}
 
 		// 2b. Apply confirmations to get safe head.
+		if chainHead < idx.config.Confirmations {
+			idx.logger.Debug("chain too young for confirmation buffer, sleeping", "head", chainHead, "confirmations", idx.config.Confirmations)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
+		}
 		safeHead := chainHead - idx.config.Confirmations
 
 		// 2c. If at head, sleep and retry.
@@ -99,7 +125,15 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 		// 2e. Check for reorg at from-1 (the block we already processed).
 		reorged, err := detectReorg(ctx, idx.ethClient, idx.store.BlockRepo(), idx.chainID, cursor)
 		if err != nil {
-			return fmt.Errorf("detect reorg at block %d: %w", cursor, err)
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "detect reorg", err); shouldExit {
+				return fmt.Errorf("detect reorg at block %d (after %d retries): %w", cursor, maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
 		}
 
 		// 2f. If reorg detected, roll back and reset cursor.
@@ -109,6 +143,7 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 				return fmt.Errorf("handle reorg: %w", err)
 			}
 			cursor = ancestor
+			consecutiveErrors = 0
 			continue // re-enter loop with new cursor
 		}
 
@@ -120,7 +155,15 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			Topics:    idx.registry.TopicFilter(),
 		})
 		if err != nil {
-			return fmt.Errorf("filter logs [%d, %d]: %w", from, to, err)
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "filter logs", err); shouldExit {
+				return fmt.Errorf("filter logs [%d, %d] (after %d retries): %w", from, to, maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
 		}
 
 		// 2h. Fetch block headers for hash tracking.
@@ -132,16 +175,29 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			parentHash string
 		}
 		blocks := make([]blockInfo, 0, to-from+1)
+		headerFailed := false
 		for bn := from; bn <= to; bn++ {
 			header, err := idx.ethClient.HeaderByNumber(ctx, new(big.Int).SetUint64(bn))
 			if err != nil {
-				return fmt.Errorf("get block header %d: %w", bn, err)
+				if shouldExit := idx.handleLoopError(&consecutiveErrors, "get block header", err); shouldExit {
+					return fmt.Errorf("get block header %d (after %d retries): %w", bn, maxLoopRetries, err)
+				}
+				headerFailed = true
+				break
 			}
 			blocks = append(blocks, blockInfo{
 				number:     bn,
 				hash:       header.Hash().Hex(),
 				parentHash: header.ParentHash.Hex(),
 			})
+		}
+		if headerFailed {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
 		}
 
 		// 2i. Atomic write: all events + block hashes + cursor update
@@ -175,13 +231,36 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			return nil
 		})
 		if err != nil {
-			return fmt.Errorf("process batch [%d, %d]: %w", from, to, err)
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "process batch", err); shouldExit {
+				return fmt.Errorf("process batch [%d, %d] (after %d retries): %w", from, to, maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
 		}
 
 		idx.logger.Info("indexed batch", "from", from, "to", to, "logs", len(logs))
 		cursor = to
+		consecutiveErrors = 0
 
 		// 2j. If still behind head, continue immediately (catching up).
 		// Otherwise the loop will check and sleep at step 2c.
 	}
+}
+
+// handleLoopError logs a transient error and increments the consecutive
+// error counter. Returns true if the retry budget is exhausted and the
+// caller should exit.
+func (idx *ChainIndexer) handleLoopError(consecutiveErrors *int, operation string, err error) bool {
+	*consecutiveErrors++
+	idx.logger.Error("transient error, will retry",
+		"operation", operation,
+		"error", err,
+		"attempt", *consecutiveErrors,
+		"max_retries", maxLoopRetries,
+	)
+	return *consecutiveErrors >= maxLoopRetries
 }

@@ -37,8 +37,13 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// 1. Loop up to maxRetries+1 attempts
 	// 2. Call t.base.RoundTrip(req)
 	// 3. If success and non-retryable status, return
-	// 4. If retryable, close resp.Body, sleep with exponential backoff
+	// 4. If retryable, close resp.Body, sleep with exponential backoff + jitter:
+	//    delay = baseDelay * 2^attempt * random(0.5, 1.0)
+	//    Jitter prevents thundering herd when multiple instances retry simultaneously.
 	// 5. Return last response/error after exhausting retries
+	//
+	// With defaults (5 retries, 500ms base), worst-case budget is ~24s:
+	//   500ms + 1s + 2s + 4s + 8s = 15.5s (plus jitter up to ~24s)
 	panic("not implemented")
 }
 
