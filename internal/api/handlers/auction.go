@@ -24,15 +24,22 @@ type AuctionHandler struct {
 // from internal representation — fields can be renamed, omitted,
 // or formatted differently without changing domain code.
 type AuctionResponse struct {
-	AuctionAddress string `json:"auction_address"`
-	TokenOut       string `json:"token_out"`
-	CurrencyIn     string `json:"currency_in"`
-	Owner          string `json:"owner"`
-	StartBlock     uint64 `json:"start_block"`
-	EndBlock       uint64 `json:"end_block"`
-	BlockNumber    uint64 `json:"block_number"`
-	TxHash         string `json:"tx_hash"`
-	LogIndex       uint   `json:"log_index"`
+	AuctionAddress         string `json:"auction_address"`
+	Token                  string `json:"token"`
+	Amount                 string `json:"amount"`
+	Currency               string `json:"currency"`
+	TokensRecipient        string `json:"tokens_recipient"`
+	FundsRecipient         string `json:"funds_recipient"`
+	StartBlock             uint64 `json:"start_block"`
+	EndBlock               uint64 `json:"end_block"`
+	ClaimBlock             uint64 `json:"claim_block"`
+	TickSpacing            string `json:"tick_spacing"`
+	ValidationHook         string `json:"validation_hook"`
+	FloorPrice             string `json:"floor_price"`
+	RequiredCurrencyRaised string `json:"required_currency_raised"`
+	BlockNumber            uint64 `json:"block_number"`
+	TxHash                 string `json:"tx_hash"`
+	LogIndex               uint   `json:"log_index"`
 }
 
 // toAuctionResponse maps a domain Auction to its API representation.
@@ -40,15 +47,22 @@ type AuctionResponse struct {
 // be added here if needed by frontend clients).
 func toAuctionResponse(a *cca.Auction) AuctionResponse {
 	return AuctionResponse{
-		AuctionAddress: strings.ToLower(a.AuctionAddress.Hex()),
-		TokenOut:       strings.ToLower(a.TokenOut.Hex()),
-		CurrencyIn:     strings.ToLower(a.CurrencyIn.Hex()),
-		Owner:          strings.ToLower(a.Owner.Hex()),
-		StartBlock:     a.StartTime,
-		EndBlock:       a.EndTime,
-		BlockNumber:    a.BlockNumber,
-		TxHash:         a.TxHash.Hex(),
-		LogIndex:       a.LogIndex,
+		AuctionAddress:         strings.ToLower(a.AuctionAddress.Hex()),
+		Token:                  strings.ToLower(a.Token.Hex()),
+		Amount:                 a.Amount.String(),
+		Currency:               strings.ToLower(a.Currency.Hex()),
+		TokensRecipient:        strings.ToLower(a.TokensRecipient.Hex()),
+		FundsRecipient:         strings.ToLower(a.FundsRecipient.Hex()),
+		StartBlock:             a.StartBlock,
+		EndBlock:               a.EndBlock,
+		ClaimBlock:             a.ClaimBlock,
+		TickSpacing:            a.TickSpacing.String(),
+		ValidationHook:         strings.ToLower(a.ValidationHook.Hex()),
+		FloorPrice:             a.FloorPrice.String(),
+		RequiredCurrencyRaised: a.RequiredCurrencyRaised.String(),
+		BlockNumber:            a.BlockNumber,
+		TxHash:                 a.TxHash.Hex(),
+		LogIndex:               a.LogIndex,
 	}
 }
 
@@ -58,7 +72,7 @@ func toAuctionResponse(a *cca.Auction) AuctionResponse {
 func (h *AuctionHandler) Get(w http.ResponseWriter, r *http.Request) {
 	address := r.PathValue("address")
 	if address == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "bad_request", "address is required")
+		httputil.WriteError(w, http.StatusBadRequest, "bad_request", "address is required") // feed: generally, I'd like our errors to be defined somewhere as opposed to writing out the error codes manually
 		return
 	}
 

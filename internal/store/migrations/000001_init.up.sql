@@ -31,21 +31,29 @@ CREATE TABLE raw_events (
 CREATE INDEX idx_raw_events_block ON raw_events (chain_id, block_number);
 CREATE INDEX idx_raw_events_event ON raw_events (chain_id, event_name);
 
--- Auctions: decoded AuctionCreated events.
--- Each event type gets its own table — simple, typed queries, no JSON decoding at read time.
+-- Auctions: decoded AuctionCreated events from the CCA factory.
+-- Direct event fields: auction (indexed), token (indexed), amount, configData.
+-- configData is ABI-decoded into the AuctionParameters columns below.
 CREATE TABLE event_ccaf_auction_created (
-    chain_id        BIGINT NOT NULL,
-    auction_address TEXT   NOT NULL,
-    token_out       TEXT   NOT NULL,
-    currency_in     TEXT   NOT NULL,
-    owner           TEXT   NOT NULL,
-    start_time      BIGINT NOT NULL,
-    end_time        BIGINT NOT NULL,
-    block_number    BIGINT NOT NULL,
-    tx_hash         TEXT   NOT NULL,
-    log_index       INTEGER NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    chain_id                 BIGINT  NOT NULL,
+    auction_address          TEXT    NOT NULL,
+    token                    TEXT    NOT NULL,
+    amount                   NUMERIC NOT NULL,
+    currency                 TEXT    NOT NULL,
+    tokens_recipient         TEXT    NOT NULL,
+    funds_recipient          TEXT    NOT NULL,
+    start_block              BIGINT  NOT NULL,
+    end_block                BIGINT  NOT NULL,
+    claim_block              BIGINT  NOT NULL,
+    tick_spacing             NUMERIC NOT NULL,
+    validation_hook          TEXT    NOT NULL,
+    floor_price              NUMERIC NOT NULL,
+    required_currency_raised NUMERIC NOT NULL,
+    block_number             BIGINT  NOT NULL,
+    tx_hash                  TEXT    NOT NULL,
+    log_index                INTEGER NOT NULL,
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (chain_id, auction_address)
 );
 

@@ -14,8 +14,10 @@ type auctionRepo struct {
 // Uses ON CONFLICT DO NOTHING for idempotency — re-processing the
 // same block range after a restart is safe.
 func (r *auctionRepo) Insert(ctx context.Context, auction *cca.Auction) error {
-	// TODO: INSERT INTO event_ccaf_auction_created (chain_id, auction_address, token_out, currency_in,
-	//       owner, start_time, end_time, block_number, tx_hash, log_index)
+	// TODO: INSERT INTO event_ccaf_auction_created (chain_id, auction_address, token, amount,
+	//       currency, tokens_recipient, funds_recipient, start_block, end_block, claim_block,
+	//       tick_spacing, validation_hook, floor_price, required_currency_raised,
+	//       block_number, tx_hash, log_index)
 	//       VALUES ($1, $2, ...) ON CONFLICT DO NOTHING
 	panic("not implemented")
 }

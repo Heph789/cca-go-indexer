@@ -10,10 +10,10 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
-// factory.json is the ABI for the CCA factory contract.
+// ContinuousClearingAuctionFactory.json is the ABI for the CCA factory contract.
 // Source: CCA contract repo or verified Sepolia explorer.
 //
-//go:embed factory.json
+//go:embed ContinuousClearingAuctionFactory.json
 var factoryABIJSON []byte
 
 // FactoryABI is the parsed factory contract ABI.
