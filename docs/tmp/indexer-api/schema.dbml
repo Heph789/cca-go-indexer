@@ -1,0 +1,74 @@
+// CCA Indexer — data model for dbdiagram.io
+
+Table indexer_cursors {
+  chain_id        bigint [pk, not null]
+  last_block      bigint [not null]
+  last_block_hash text   [not null]
+  updated_at      timestamptz [not null, default: `now()`]
+}
+
+Table raw_events {
+  chain_id     bigint  [not null]
+  block_number bigint  [not null]
+  block_hash   text    [not null]
+  tx_hash      text    [not null]
+  log_index    integer [not null]
+  address      text    [not null]
+  event_name   text    [not null]
+  topics       jsonb   [not null]
+  data         text    [not null]
+  decoded      jsonb
+  indexed_at   timestamptz [not null, default: `now()`]
+
+  indexes {
+    (chain_id, block_number, tx_hash, log_index) [pk]
+    (chain_id, block_number) [name: 'idx_raw_events_block']
+    (chain_id, event_name)   [name: 'idx_raw_events_event']
+  }
+}
+
+Table auctions {
+  chain_id        bigint  [not null]
+  auction_address text    [not null]
+  token_out       text    [not null]
+  currency_in     text    [not null]
+  owner           text    [not null]
+  start_time      bigint  [not null]
+  end_time        bigint  [not null]
+  block_number    bigint  [not null]
+  tx_hash         text    [not null]
+  log_index       integer [not null]
+  created_at      timestamptz [not null, default: `now()`]
+
+  indexes {
+    (chain_id, auction_address) [pk]
+  }
+}
+
+Table indexed_blocks {
+  chain_id     bigint [not null]
+  block_number bigint [not null]
+  block_hash   text   [not null]
+  parent_hash  text   [not null]
+  indexed_at   timestamptz [not null, default: `now()`]
+
+  indexes {
+    (chain_id, block_number) [pk]
+  }
+}
+
+Table watched_contracts {
+  chain_id bigint [not null]
+  address  text   [not null]
+  label    text   [not null, default: '']
+  added_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (chain_id, address) [pk]
+  }
+}
+
+// Relationships — all tables share chain_id as a logical partition key.
+// raw_events and auctions reference indexed_blocks by (chain_id, block_number).
+Ref: raw_events.(chain_id, block_number) > indexed_blocks.(chain_id, block_number)
+Ref: auctions.(chain_id, block_number) > indexed_blocks.(chain_id, block_number)
