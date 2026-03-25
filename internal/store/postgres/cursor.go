@@ -19,8 +19,8 @@ func (r *cursorRepo) Get(ctx context.Context, chainID int64) (uint64, string, er
 // Called at the end of each batch inside the WithTx transaction,
 // ensuring the cursor never advances past committed data.
 func (r *cursorRepo) Upsert(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
-	// TODO: INSERT INTO indexer_cursors (chain_id, last_block, last_block_hash, updated_at)
-	//       VALUES ($1, $2, $3, NOW())
+	// TODO: INSERT INTO indexer_cursors (chain_id, last_block, last_block_hash, created_at, updated_at)
+	//       VALUES ($1, $2, $3, NOW(), NOW())
 	//       ON CONFLICT (chain_id) DO UPDATE SET last_block = $2, last_block_hash = $3, updated_at = NOW()
 	panic("not implemented")
 }

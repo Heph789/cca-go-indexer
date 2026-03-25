@@ -4,6 +4,7 @@ Table indexer_cursors {
   chain_id        bigint [pk, not null]
   last_block      bigint [not null]
   last_block_hash text   [not null]
+  created_at      timestamptz [not null, default: `now()`]
   updated_at      timestamptz [not null, default: `now()`]
 }
 
@@ -18,7 +19,8 @@ Table raw_events {
   topics       jsonb   [not null]
   data         text    [not null]
   decoded      jsonb
-  indexed_at   timestamptz [not null, default: `now()`]
+  created_at   timestamptz [not null, default: `now()`]
+  updated_at   timestamptz [not null, default: `now()`]
 
   indexes {
     (chain_id, block_number, tx_hash, log_index) [pk]
@@ -33,12 +35,13 @@ Table event_ccaf_auction_created {
   token_out       text    [not null]
   currency_in     text    [not null]
   owner           text    [not null]
-  start_time      bigint  [not null]
-  end_time        bigint  [not null]
+  start_time      bigint  [not null, note: 'Unix timestamp — auction start, not a block number']
+  end_time        bigint  [not null, note: 'Unix timestamp — auction end, not a block number']
   block_number    bigint  [not null]
   tx_hash         text    [not null]
   log_index       integer [not null]
   created_at      timestamptz [not null, default: `now()`]
+  updated_at      timestamptz [not null, default: `now()`]
 
   indexes {
     (chain_id, auction_address) [pk]
@@ -50,7 +53,8 @@ Table indexed_blocks {
   block_number bigint [not null]
   block_hash   text   [not null]
   parent_hash  text   [not null]
-  indexed_at   timestamptz [not null, default: `now()`]
+  created_at   timestamptz [not null, default: `now()`]
+  updated_at   timestamptz [not null, default: `now()`]
 
   indexes {
     (chain_id, block_number) [pk]
@@ -60,8 +64,9 @@ Table indexed_blocks {
 Table watched_contracts {
   chain_id bigint [not null]
   address  text   [not null]
-  label    text   [not null, default: '']
-  added_at timestamptz [not null, default: `now()`]
+  label      text   [not null, default: '']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
 
   indexes {
     (chain_id, address) [pk]

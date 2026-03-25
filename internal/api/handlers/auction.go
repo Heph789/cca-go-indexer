@@ -28,12 +28,11 @@ type AuctionResponse struct {
 	TokenOut       string `json:"token_out"`
 	CurrencyIn     string `json:"currency_in"`
 	Owner          string `json:"owner"`
-	StartTime      uint64 `json:"start_time"`
-	EndTime        uint64 `json:"end_time"`
+	StartBlock     uint64 `json:"start_block"`
+	EndBlock       uint64 `json:"end_block"`
 	BlockNumber    uint64 `json:"block_number"`
 	TxHash         string `json:"tx_hash"`
 	LogIndex       uint   `json:"log_index"`
-	CreatedAt      string `json:"created_at"` // RFC3339
 }
 
 // toAuctionResponse maps a domain Auction to its API representation.
@@ -45,12 +44,11 @@ func toAuctionResponse(a *cca.Auction) AuctionResponse {
 		TokenOut:       strings.ToLower(a.TokenOut.Hex()),
 		CurrencyIn:     strings.ToLower(a.CurrencyIn.Hex()),
 		Owner:          strings.ToLower(a.Owner.Hex()),
-		StartTime:      a.StartTime,
-		EndTime:        a.EndTime,
+		StartBlock:     a.StartTime,
+		EndBlock:       a.EndTime,
 		BlockNumber:    a.BlockNumber,
 		TxHash:         a.TxHash.Hex(),
 		LogIndex:       a.LogIndex,
-		CreatedAt:      a.CreatedAt.UTC().Format("2006-01-02T15:04:05Z"),
 	}
 }
 

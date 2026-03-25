@@ -19,5 +19,6 @@ type RawEvent struct {
 	TopicsJSON  string // JSON array of topic hex strings
 	DataHex     string // hex-encoded log data
 	DecodedJSON string // JSON representation of decoded fields
-	IndexedAt   time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

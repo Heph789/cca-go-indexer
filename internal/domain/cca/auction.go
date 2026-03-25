@@ -16,7 +16,7 @@ type Auction struct {
 	TokenOut       common.Address
 	CurrencyIn     common.Address
 	Owner          common.Address
-	StartTime      uint64
+	StartTime      uint64 // feed: this should also be StartBlock. Apply this generally where it makes sense to match the db
 	EndTime        uint64
 
 	// Block context — where this event appeared on-chain.
@@ -24,5 +24,6 @@ type Auction struct {
 	BlockNumber uint64
 	TxHash      common.Hash
 	LogIndex    uint
-	CreatedAt   time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }

@@ -5,6 +5,7 @@ CREATE TABLE indexer_cursors (
     chain_id        BIGINT NOT NULL,
     last_block      BIGINT NOT NULL,
     last_block_hash TEXT   NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (chain_id)
 );
@@ -22,7 +23,8 @@ CREATE TABLE raw_events (
     topics       JSONB   NOT NULL,
     data         TEXT    NOT NULL,
     decoded      JSONB,
-    indexed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (chain_id, block_number, tx_hash, log_index)
 );
 
@@ -43,6 +45,7 @@ CREATE TABLE event_ccaf_auction_created (
     tx_hash         TEXT   NOT NULL,
     log_index       INTEGER NOT NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (chain_id, auction_address)
 );
 
@@ -54,7 +57,8 @@ CREATE TABLE indexed_blocks (
     block_number BIGINT NOT NULL,
     block_hash   TEXT   NOT NULL,
     parent_hash  TEXT   NOT NULL,
-    indexed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (chain_id, block_number)
 );
 
@@ -65,7 +69,8 @@ CREATE TABLE indexed_blocks (
 CREATE TABLE watched_contracts (
     chain_id BIGINT NOT NULL,
     address  TEXT   NOT NULL,
-    label    TEXT   NOT NULL DEFAULT '',
-    added_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    label      TEXT   NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (chain_id, address)
 );
