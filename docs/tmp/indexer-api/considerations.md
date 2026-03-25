@@ -77,3 +77,29 @@ Revisit with Option B (dedicated migrate step) when:
 **Decision: Option B — skip FK for now, add later if needed**
 
 The indexer only fetches logs for watched addresses, so data consistency is guaranteed by application logic. Adding the FK later is a single `ALTER TABLE` migration with no data changes required. Revisit if data integrity becomes a concern or if new writers are introduced.
+
+---
+
+## 4. Rate Limiting
+
+**Problem:** The API is public with no authentication. Without rate limiting, a single actor could overwhelm the server with requests.
+
+**Options:**
+
+| Option | Pros | Cons |
+|---|---|---|
+| **A. Reverse proxy rate limiting (Cloudflare, nginx)** | Zero application code; handled at the edge before requests hit origin; same layer as CDN caching; DDoS protection included (Cloudflare) | Requires proxy infra; per-IP only unless combined with API keys |
+| **B. Application-level middleware (`x/time/rate`)** | No external deps; fine-grained control | Only works for a single instance; behind a load balancer needs shared state (Redis) |
+| **C. API keys + per-key limits** | Per-consumer visibility; easy revocation; ties abuse to identity | More overhead; need key management; overkill for a public read-only API |
+| **D. Redis-backed rate limiting** | Shared across instances; per-IP or per-key | Another dependency; operational overhead |
+
+**Decision: Option A — reverse proxy rate limiting**
+
+Per-IP rate limiting at the proxy layer (Cloudflare, nginx, Caddy) stops casual abuse with no application code. This is the same layer that handles caching from consideration #1.
+
+**Limitations of per-IP rate limiting:** IP spoofing is impractical for HTTP (TCP handshake prevents it), but a determined attacker with access to botnets or rotating cloud IPs can bypass per-IP limits. For a public read-only API serving on-chain data (which is already public), this is an acceptable trade-off — the attack incentive is low and the data isn't sensitive.
+
+**If abuse escalates**, layer on:
+1. API keys (ties usage to an identity)
+2. Cloudflare Bot Management (fingerprinting, behavior analysis)
+3. WAF rules (block suspicious request patterns)

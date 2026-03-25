@@ -97,7 +97,7 @@ func recovery(logger *slog.Logger) func(http.Handler) http.Handler {
 						"request_id", RequestIDFromContext(r.Context()),
 					)
 					httputil.WriteError(w, http.StatusInternalServerError,
-						"internal_error", "an unexpected error occurred")
+						httputil.CodeInternalError, "an unexpected error occurred")
 				}
 			}()
 			next.ServeHTTP(w, r)

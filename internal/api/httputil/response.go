@@ -9,6 +9,15 @@ import (
 	"net/http"
 )
 
+// --- Error codes ---
+// Centralized error codes so handlers use constants instead of string literals.
+
+const (
+	CodeBadRequest    = "bad_request"
+	CodeNotFound      = "not_found"
+	CodeInternalError = "internal_error"
+)
+
 // --- JSON response envelope types ---
 
 // Response is the standard success envelope.
@@ -49,5 +58,5 @@ func WriteError(w http.ResponseWriter, status int, code, message string) {
 
 // WriteNotFound writes a 404 error with a consistent message format.
 func WriteNotFound(w http.ResponseWriter, resource string) {
-	WriteError(w, http.StatusNotFound, "not_found", resource+" not found")
+	WriteError(w, http.StatusNotFound, CodeNotFound, resource+" not found")
 }

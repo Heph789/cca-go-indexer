@@ -72,20 +72,20 @@ func toAuctionResponse(a *cca.Auction) AuctionResponse {
 func (h *AuctionHandler) Get(w http.ResponseWriter, r *http.Request) {
 	address := r.PathValue("address")
 	if address == "" {
-		httputil.WriteError(w, http.StatusBadRequest, "bad_request", "address is required") // feed: generally, I'd like our errors to be defined somewhere as opposed to writing out the error codes manually
+		httputil.WriteError(w, http.StatusBadRequest, httputil.CodeBadRequest, "address is required")
 		return
 	}
 
 	// Basic validation — Ethereum addresses are 42 chars (0x + 40 hex).
 	if !isValidAddress(address) {
-		httputil.WriteError(w, http.StatusBadRequest, "bad_request", "invalid ethereum address")
+		httputil.WriteError(w, http.StatusBadRequest, httputil.CodeBadRequest, "invalid ethereum address")
 		return
 	}
 
 	auction, err := h.Store.AuctionRepo().GetByAddress(r.Context(), h.ChainID, strings.ToLower(address))
 	if err != nil {
 		h.Logger.Error("failed to get auction", "address", address, "error", err)
-		httputil.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to fetch auction")
+		httputil.WriteError(w, http.StatusInternalServerError, httputil.CodeInternalError, "failed to fetch auction")
 		return
 	}
 	if auction == nil {
