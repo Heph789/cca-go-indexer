@@ -58,12 +58,14 @@ func main() {
 	defer ethClient.Close()
 
 	// --- Step 5: Register event handlers ---
-	// Adding a new event: instantiate the handler and add it here.
-	// feed: in this structure, each event is registered here with no regard to the contract they belong to. This organization seems like it could be confusing.
+	// Handlers are grouped by the contract that emits them.
 	registry := indexer.NewRegistry(
+		// CCA Factory (ccaf)
 		&handlers.AuctionCreatedHandler{},
-		// Future: &handlers.BidSubmittedHandler{},
-		// Future: &handlers.ClearingPriceHandler{},
+
+		// Future: CCA Auction (ccaa)
+		// &handlers.BidSubmittedHandler{},
+		// &handlers.ClearingPriceHandler{},
 	)
 
 	// --- Step 6: Create and run chain indexer ---
