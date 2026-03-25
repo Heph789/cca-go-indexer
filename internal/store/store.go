@@ -38,5 +38,4 @@ type CursorRepository interface {
 type BlockRepository interface {
 	Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error
 	GetHash(ctx context.Context, chainID int64, blockNumber uint64) (string, error)
-	DeleteFrom(ctx context.Context, chainID int64, fromBlock uint64) error
 }

@@ -136,10 +136,6 @@ func (f *fakeBlockRepo) GetHash(_ context.Context, _ int64, _ uint64) (string, e
 	return "", nil
 }
 
-func (f *fakeBlockRepo) DeleteFrom(_ context.Context, _ int64, _ uint64) error {
-	return nil
-}
-
 // --- fakeAuctionRepo ---
 
 type fakeAuctionRepo struct {
