@@ -38,12 +38,3 @@ func (r *AuctionRepo) Insert(ctx context.Context, auction *cca.Auction) error {
 	)
 	return err
 }
-
-// DeleteFromBlock removes all auctions for the given chain at or above fromBlock.
-func (r *AuctionRepo) DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error {
-	_, err := r.db.Exec(ctx,
-		"DELETE FROM auctions WHERE chain_id = $1 AND block_number >= $2",
-		chainID, fromBlock,
-	)
-	return err
-}

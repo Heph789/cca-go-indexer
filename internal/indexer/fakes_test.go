@@ -136,10 +136,6 @@ func (f *fakeBlockRepo) GetHash(_ context.Context, _ int64, _ uint64) (string, e
 	return "", nil
 }
 
-func (f *fakeBlockRepo) DeleteFrom(_ context.Context, _ int64, _ uint64) error {
-	return nil
-}
-
 // --- fakeAuctionRepo ---
 
 type fakeAuctionRepo struct {
@@ -151,10 +147,6 @@ func (f *fakeAuctionRepo) Insert(_ context.Context, a *cca.Auction) error {
 	return nil
 }
 
-func (f *fakeAuctionRepo) DeleteFromBlock(_ context.Context, _ int64, _ uint64) error {
-	return nil
-}
-
 // --- fakeRawEventRepo ---
 
 type fakeRawEventRepo struct {
@@ -163,10 +155,6 @@ type fakeRawEventRepo struct {
 
 func (f *fakeRawEventRepo) Insert(_ context.Context, e *cca.RawEvent) error {
 	f.insertCalls = append(f.insertCalls, e)
-	return nil
-}
-
-func (f *fakeRawEventRepo) DeleteFromBlock(_ context.Context, _ int64, _ uint64) error {
 	return nil
 }
 

@@ -29,12 +29,3 @@ func (r *RawEventRepo) Insert(ctx context.Context, event *cca.RawEvent) error {
 	)
 	return err
 }
-
-// DeleteFromBlock removes all raw events for the given chain at or above fromBlock.
-func (r *RawEventRepo) DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error {
-	_, err := r.db.Exec(ctx,
-		"DELETE FROM raw_events WHERE chain_id = $1 AND block_number >= $2",
-		chainID, fromBlock,
-	)
-	return err
-}

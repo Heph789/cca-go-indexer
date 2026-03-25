@@ -111,6 +111,8 @@ func (s *Store) Close() {
 
 // WithTx runs fn inside a database transaction. If fn returns nil the
 // transaction is committed; otherwise it is rolled back.
+// Callers must use the repositories from txStore (not the original Store)
+// for all operations that should be part of the transaction.
 func (s *Store) WithTx(ctx context.Context, fn func(txStore store.Store) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
