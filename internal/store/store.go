@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/cca/go-indexer/internal/domain/cca"
 )
 
@@ -27,12 +29,12 @@ type RawEventRepository interface {
 }
 
 type CursorRepository interface {
-	Get(ctx context.Context, chainID int64) (blockNumber uint64, blockHash string, err error)
-	Upsert(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error
+	Get(ctx context.Context, chainID int64) (blockNumber uint64, blockHash common.Hash, err error)
+	Upsert(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error
 }
 
 type BlockRepository interface {
-	Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error
-	GetHash(ctx context.Context, chainID int64, blockNumber uint64) (string, error)
+	Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error
+	GetHash(ctx context.Context, chainID int64, blockNumber uint64) (common.Hash, error)
 	DeleteFrom(ctx context.Context, chainID int64, fromBlock uint64) error
 }

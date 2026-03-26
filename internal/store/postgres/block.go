@@ -4,22 +4,23 @@ import (
 	"context"
 	"errors"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
 )
 
 type blockRepo struct{ q querier }
 
-func (r *blockRepo) Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error {
+func (r *blockRepo) Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error {
 	_, err := r.q.Exec(ctx,
 		`INSERT INTO indexed_blocks (chain_id, block_number, block_hash, parent_hash)
 		 VALUES ($1, $2, $3, $4)
 		 ON CONFLICT DO NOTHING`,
-		chainID, blockNumber, blockHash, parentHash,
+		chainID, blockNumber, blockHash.Hex(), parentHash.Hex(),
 	)
 	return err
 }
 
-func (r *blockRepo) GetHash(ctx context.Context, chainID int64, blockNumber uint64) (string, error) {
+func (r *blockRepo) GetHash(ctx context.Context, chainID int64, blockNumber uint64) (common.Hash, error) {
 	var hash string
 
 	err := r.q.QueryRow(ctx,
@@ -28,13 +29,13 @@ func (r *blockRepo) GetHash(ctx context.Context, chainID int64, blockNumber uint
 	).Scan(&hash)
 
 	if errors.Is(err, pgx.ErrNoRows) {
-		return "", nil
+		return common.Hash{}, nil
 	}
 	if err != nil {
-		return "", err
+		return common.Hash{}, err
 	}
 
-	return hash, nil
+	return common.HexToHash(hash), nil
 }
 
 func (r *blockRepo) DeleteFrom(ctx context.Context, chainID int64, fromBlock uint64) error {
