@@ -17,8 +17,6 @@ import (
 	"github.com/cca/go-indexer/internal/store"
 )
 
-// --- mock types ---
-
 type mockAuctionRepo struct {
 	GetByAddressFn func(ctx context.Context, chainID int64, auctionAddress string) (*cca.Auction, error)
 }
@@ -50,8 +48,6 @@ func (m *mockStore) WithTx(ctx context.Context, fn func(txStore store.Store) err
 	return fn(m)
 }
 func (m *mockStore) Close() {}
-
-// --- helpers ---
 
 const testChainID int64 = 324
 
@@ -87,8 +83,6 @@ func setupMux(s store.Store) *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/auctions/{address}", handler.Get)
 	return mux
 }
-
-// --- tests ---
 
 func TestAuctionHandler_Get(t *testing.T) {
 	t.Run("returns 200 with auction data for valid address", func(t *testing.T) {
