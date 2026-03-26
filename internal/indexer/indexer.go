@@ -27,8 +27,8 @@ type IndexerConfig struct {
 }
 
 type blockHeader struct {
-	hash       string
-	parentHash string
+	hash       common.Hash
+	parentHash common.Hash
 }
 
 type ChainIndexer struct {
@@ -111,8 +111,8 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 					return fmt.Errorf("getting header for block %d: %w", block, err)
 				}
 				headers[block-from] = blockHeader{
-					hash:       header.Hash().Hex(),
-					parentHash: header.ParentHash.Hex(),
+					hash:       header.Hash(),
+					parentHash: header.ParentHash,
 				}
 				return nil
 			})
