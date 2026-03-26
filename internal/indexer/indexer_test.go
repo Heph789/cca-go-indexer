@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/cca/go-indexer/internal/store"
 )
 
 func noopLogger() *slog.Logger {
@@ -797,5 +798,99 @@ func TestIndexer_HeaderConcurrencyDefaultsToOne(t *testing.T) {
 
 	if observed != 1 {
 		t.Errorf("expected max 1 concurrent header fetch when HeaderConcurrency is unset, observed %d", observed)
+	}
+}
+
+func TestIndexer_AllWritesInsideWithTx(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	eventID := common.HexToHash("0xaaaa")
+	handler := &mockHandler{eventName: "TestEvent", eventID: eventID}
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
+		return 100, "0xabc", nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return &types.Header{
+			ParentHash: common.HexToHash("0xparent"),
+		}, nil
+	}
+
+	testLog := types.Log{
+		Topics:      []common.Hash{eventID},
+		BlockNumber: 101,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return []types.Log{testLog}, nil
+	}
+
+	var withinTx bool
+	txBlockRepo := &mockBlockRepo{}
+	txCursorRepo := &mockCursorRepo{}
+	txStore := &mockStore{
+		auctionRepo:  s.auctionRepo,
+		rawEventRepo: s.rawEventRepo,
+		cursorRepo:   txCursorRepo,
+		blockRepo:    txBlockRepo,
+	}
+
+	var handlerUsedTxStore bool
+	var blockInsertUsedTxStore bool
+	var cursorUpsertUsedTxStore bool
+
+	handler.HandleFn = func(ctx context.Context, chainID int64, log types.Log, st store.Store) error {
+		if st == txStore {
+			handlerUsedTxStore = true
+		}
+		return nil
+	}
+
+	txBlockRepo.InsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error {
+		if withinTx {
+			blockInsertUsedTxStore = true
+		}
+		return nil
+	}
+
+	txCursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+		if withinTx {
+			cursorUpsertUsedTxStore = true
+		}
+		cancel()
+		return nil
+	}
+
+	s.WithTxFn = func(ctx context.Context, fn func(txStore store.Store) error) error {
+		withinTx = true
+		defer func() { withinTx = false }()
+		return fn(txStore)
+	}
+
+	registry := NewRegistry(handler)
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: 3,
+	})
+
+	_ = idx.Run(ctx)
+
+	if !handlerUsedTxStore {
+		t.Error("expected handler to receive the tx store")
+	}
+	if !blockInsertUsedTxStore {
+		t.Error("expected BlockRepo.Insert to be called within WithTx")
+	}
+	if !cursorUpsertUsedTxStore {
+		t.Error("expected CursorRepo.Upsert to be called within WithTx")
 	}
 }
