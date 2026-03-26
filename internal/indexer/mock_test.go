@@ -146,18 +146,18 @@ func (m *mockRawEventRepo) DeleteFromBlock(ctx context.Context, chainID int64, f
 // --- mockCursorRepo ---
 
 type mockCursorRepo struct {
-	GetFn    func(ctx context.Context, chainID int64) (uint64, string, error)
-	UpsertFn func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error
+	GetFn    func(ctx context.Context, chainID int64) (uint64, common.Hash, error)
+	UpsertFn func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error
 }
 
-func (m *mockCursorRepo) Get(ctx context.Context, chainID int64) (uint64, string, error) {
+func (m *mockCursorRepo) Get(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
 	if m.GetFn != nil {
 		return m.GetFn(ctx, chainID)
 	}
-	return 0, "", nil
+	return 0, common.Hash{}, nil
 }
 
-func (m *mockCursorRepo) Upsert(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+func (m *mockCursorRepo) Upsert(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 	if m.UpsertFn != nil {
 		return m.UpsertFn(ctx, chainID, blockNumber, blockHash)
 	}
@@ -167,23 +167,23 @@ func (m *mockCursorRepo) Upsert(ctx context.Context, chainID int64, blockNumber 
 // --- mockBlockRepo ---
 
 type mockBlockRepo struct {
-	InsertFn    func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error
-	GetHashFn   func(ctx context.Context, chainID int64, blockNumber uint64) (string, error)
+	InsertFn    func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error
+	GetHashFn   func(ctx context.Context, chainID int64, blockNumber uint64) (common.Hash, error)
 	DeleteFromFn func(ctx context.Context, chainID int64, fromBlock uint64) error
 }
 
-func (m *mockBlockRepo) Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error {
+func (m *mockBlockRepo) Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error {
 	if m.InsertFn != nil {
 		return m.InsertFn(ctx, chainID, blockNumber, blockHash, parentHash)
 	}
 	return nil
 }
 
-func (m *mockBlockRepo) GetHash(ctx context.Context, chainID int64, blockNumber uint64) (string, error) {
+func (m *mockBlockRepo) GetHash(ctx context.Context, chainID int64, blockNumber uint64) (common.Hash, error) {
 	if m.GetHashFn != nil {
 		return m.GetHashFn(ctx, chainID, blockNumber)
 	}
-	return "", nil
+	return common.Hash{}, nil
 }
 
 func (m *mockBlockRepo) DeleteFrom(ctx context.Context, chainID int64, fromBlock uint64) error {

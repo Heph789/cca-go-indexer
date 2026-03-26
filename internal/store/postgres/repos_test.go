@@ -35,7 +35,7 @@ func TestCursor_Get_ReturnsZeroWhenEmpty(t *testing.T) {
 	if block != 0 {
 		t.Errorf("expected block 0, got %d", block)
 	}
-	if hash != "" {
+	if hash != (common.Hash{}) {
 		t.Errorf("expected empty hash, got %q", hash)
 	}
 }
@@ -45,7 +45,7 @@ func TestCursor_Upsert_ThenGet(t *testing.T) {
 	truncateAll(t, s)
 	ctx := context.Background()
 
-	err := s.CursorRepo().Upsert(ctx, 1, 100, "0xabc")
+	err := s.CursorRepo().Upsert(ctx, 1, 100, common.HexToHash("0xabc"))
 	if err != nil {
 		t.Fatalf("Upsert: %v", err)
 	}
@@ -57,7 +57,7 @@ func TestCursor_Upsert_ThenGet(t *testing.T) {
 	if block != 100 {
 		t.Errorf("expected block 100, got %d", block)
 	}
-	if hash != "0xabc" {
+	if hash != common.HexToHash("0xabc") {
 		t.Errorf("expected hash 0xabc, got %q", hash)
 	}
 }
@@ -67,8 +67,8 @@ func TestCursor_Upsert_UpdatesExisting(t *testing.T) {
 	truncateAll(t, s)
 	ctx := context.Background()
 
-	_ = s.CursorRepo().Upsert(ctx, 1, 100, "0xabc")
-	_ = s.CursorRepo().Upsert(ctx, 1, 200, "0xdef")
+	_ = s.CursorRepo().Upsert(ctx, 1, 100, common.HexToHash("0xabc"))
+	_ = s.CursorRepo().Upsert(ctx, 1, 200, common.HexToHash("0xdef"))
 
 	block, hash, err := s.CursorRepo().Get(ctx, 1)
 	if err != nil {
@@ -77,7 +77,7 @@ func TestCursor_Upsert_UpdatesExisting(t *testing.T) {
 	if block != 200 {
 		t.Errorf("expected block 200, got %d", block)
 	}
-	if hash != "0xdef" {
+	if hash != common.HexToHash("0xdef") {
 		t.Errorf("expected hash 0xdef, got %q", hash)
 	}
 }
@@ -87,16 +87,16 @@ func TestCursor_ScopedByChainID(t *testing.T) {
 	truncateAll(t, s)
 	ctx := context.Background()
 
-	_ = s.CursorRepo().Upsert(ctx, 1, 100, "0xaaa")
-	_ = s.CursorRepo().Upsert(ctx, 2, 200, "0xbbb")
+	_ = s.CursorRepo().Upsert(ctx, 1, 100, common.HexToHash("0xaaa"))
+	_ = s.CursorRepo().Upsert(ctx, 2, 200, common.HexToHash("0xbbb"))
 
 	block1, hash1, _ := s.CursorRepo().Get(ctx, 1)
 	block2, hash2, _ := s.CursorRepo().Get(ctx, 2)
 
-	if block1 != 100 || hash1 != "0xaaa" {
+	if block1 != 100 || hash1 != common.HexToHash("0xaaa") {
 		t.Errorf("chain 1: got block=%d hash=%q", block1, hash1)
 	}
-	if block2 != 200 || hash2 != "0xbbb" {
+	if block2 != 200 || hash2 != common.HexToHash("0xbbb") {
 		t.Errorf("chain 2: got block=%d hash=%q", block2, hash2)
 	}
 }
@@ -108,7 +108,7 @@ func TestBlock_Insert_GetHash_RoundTrip(t *testing.T) {
 	truncateAll(t, s)
 	ctx := context.Background()
 
-	err := s.BlockRepo().Insert(ctx, 1, 10, "0xblockhash", "0xparenthash")
+	err := s.BlockRepo().Insert(ctx, 1, 10, common.HexToHash("0xblockhash"), common.HexToHash("0xparenthash"))
 	if err != nil {
 		t.Fatalf("Insert: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestBlock_Insert_GetHash_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetHash: %v", err)
 	}
-	if hash != "0xblockhash" {
+	if hash != common.HexToHash("0xblockhash") {
 		t.Errorf("expected 0xblockhash, got %q", hash)
 	}
 }
@@ -127,8 +127,8 @@ func TestBlock_Insert_DuplicateNoError(t *testing.T) {
 	truncateAll(t, s)
 	ctx := context.Background()
 
-	_ = s.BlockRepo().Insert(ctx, 1, 10, "0xblockhash", "0xparenthash")
-	err := s.BlockRepo().Insert(ctx, 1, 10, "0xblockhash", "0xparenthash")
+	_ = s.BlockRepo().Insert(ctx, 1, 10, common.HexToHash("0xblockhash"), common.HexToHash("0xparenthash"))
+	err := s.BlockRepo().Insert(ctx, 1, 10, common.HexToHash("0xblockhash"), common.HexToHash("0xparenthash"))
 	if err != nil {
 		t.Fatalf("duplicate Insert should not error: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestBlock_GetHash_NonExistent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetHash: %v", err)
 	}
-	if hash != "" {
+	if hash != (common.Hash{}) {
 		t.Errorf("expected empty hash, got %q", hash)
 	}
 }
@@ -153,9 +153,9 @@ func TestBlock_DeleteFrom_RemovesGTE(t *testing.T) {
 	truncateAll(t, s)
 	ctx := context.Background()
 
-	_ = s.BlockRepo().Insert(ctx, 1, 10, "0xa", "0xp")
-	_ = s.BlockRepo().Insert(ctx, 1, 11, "0xb", "0xp")
-	_ = s.BlockRepo().Insert(ctx, 1, 12, "0xc", "0xp")
+	_ = s.BlockRepo().Insert(ctx, 1, 10, common.HexToHash("0xa"), common.HexToHash("0xp"))
+	_ = s.BlockRepo().Insert(ctx, 1, 11, common.HexToHash("0xb"), common.HexToHash("0xp"))
+	_ = s.BlockRepo().Insert(ctx, 1, 12, common.HexToHash("0xc"), common.HexToHash("0xp"))
 
 	err := s.BlockRepo().DeleteFrom(ctx, 1, 11)
 	if err != nil {
@@ -165,7 +165,7 @@ func TestBlock_DeleteFrom_RemovesGTE(t *testing.T) {
 	// block 11 and 12 should be gone
 	hash11, _ := s.BlockRepo().GetHash(ctx, 1, 11)
 	hash12, _ := s.BlockRepo().GetHash(ctx, 1, 12)
-	if hash11 != "" || hash12 != "" {
+	if hash11 != (common.Hash{}) || hash12 != (common.Hash{}) {
 		t.Errorf("blocks >= 11 should be deleted")
 	}
 }
@@ -175,13 +175,13 @@ func TestBlock_DeleteFrom_KeepsLT(t *testing.T) {
 	truncateAll(t, s)
 	ctx := context.Background()
 
-	_ = s.BlockRepo().Insert(ctx, 1, 10, "0xa", "0xp")
-	_ = s.BlockRepo().Insert(ctx, 1, 11, "0xb", "0xp")
+	_ = s.BlockRepo().Insert(ctx, 1, 10, common.HexToHash("0xa"), common.HexToHash("0xp"))
+	_ = s.BlockRepo().Insert(ctx, 1, 11, common.HexToHash("0xb"), common.HexToHash("0xp"))
 
 	_ = s.BlockRepo().DeleteFrom(ctx, 1, 11)
 
 	hash, _ := s.BlockRepo().GetHash(ctx, 1, 10)
-	if hash != "0xa" {
+	if hash != common.HexToHash("0xa") {
 		t.Errorf("block 10 should still exist, got hash=%q", hash)
 	}
 }
@@ -479,7 +479,7 @@ func TestWithTx_CommitMakesWritesVisible(t *testing.T) {
 	ctx := context.Background()
 
 	err := s.WithTx(ctx, func(txStore store.Store) error {
-		return txStore.CursorRepo().Upsert(ctx, 77, 500, "0xtxhash")
+		return txStore.CursorRepo().Upsert(ctx, 77, 500, common.HexToHash("0xtxhash"))
 	})
 	if err != nil {
 		t.Fatalf("WithTx: %v", err)
@@ -489,7 +489,7 @@ func TestWithTx_CommitMakesWritesVisible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if block != 500 || hash != "0xtxhash" {
+	if block != 500 || hash != common.HexToHash("0xtxhash") {
 		t.Errorf("expected (500, 0xtxhash), got (%d, %q)", block, hash)
 	}
 }
@@ -500,7 +500,7 @@ func TestWithTx_RollbackDiscardsWrites(t *testing.T) {
 	ctx := context.Background()
 
 	_ = s.WithTx(ctx, func(txStore store.Store) error {
-		_ = txStore.CursorRepo().Upsert(ctx, 88, 600, "0xrollback")
+		_ = txStore.CursorRepo().Upsert(ctx, 88, 600, common.HexToHash("0xrollback"))
 		return fmt.Errorf("force rollback")
 	})
 
@@ -508,7 +508,7 @@ func TestWithTx_RollbackDiscardsWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if block != 0 || hash != "" {
-		t.Errorf("expected (0, \"\") after rollback, got (%d, %q)", block, hash)
+	if block != 0 || hash != (common.Hash{}) {
+		t.Errorf("expected (0, empty) after rollback, got (%d, %q)", block, hash)
 	}
 }
