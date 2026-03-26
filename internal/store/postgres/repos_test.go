@@ -311,7 +311,7 @@ func TestAuction_Insert_GetByAddress_RoundTrip(t *testing.T) {
 		t.Fatalf("Insert: %v", err)
 	}
 
-	addr := "0x" + fmt.Sprintf("%040x", a.AuctionAddress.Bytes())
+	addr := lowerHex(a.AuctionAddress)
 	got, err := s.AuctionRepo().GetByAddress(ctx, 1, addr)
 	if err != nil {
 		t.Fatalf("GetByAddress: %v", err)
@@ -451,7 +451,7 @@ func TestAuction_BigIntFieldsRoundTrip(t *testing.T) {
 		t.Fatalf("Insert: %v", err)
 	}
 
-	addr := "0x" + fmt.Sprintf("%040x", a.AuctionAddress.Bytes())
+	addr := lowerHex(a.AuctionAddress)
 	got, err := s.AuctionRepo().GetByAddress(ctx, 1, addr)
 	if err != nil {
 		t.Fatalf("GetByAddress: %v", err)
