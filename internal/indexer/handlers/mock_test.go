@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 
+	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/cca/go-indexer/internal/domain/cca"
 	"github.com/cca/go-indexer/internal/store"
 )
@@ -84,20 +86,20 @@ func (m *mockRawEventRepo) DeleteFromBlock(ctx context.Context, chainID int64, f
 
 type mockCursorRepo struct{}
 
-func (m *mockCursorRepo) Get(ctx context.Context, chainID int64) (uint64, string, error) {
-	return 0, "", nil
+func (m *mockCursorRepo) Get(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+	return 0, common.Hash{}, nil
 }
-func (m *mockCursorRepo) Upsert(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+func (m *mockCursorRepo) Upsert(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 	return nil
 }
 
 type mockBlockRepo struct{}
 
-func (m *mockBlockRepo) Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error {
+func (m *mockBlockRepo) Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error {
 	return nil
 }
-func (m *mockBlockRepo) GetHash(ctx context.Context, chainID int64, blockNumber uint64) (string, error) {
-	return "", nil
+func (m *mockBlockRepo) GetHash(ctx context.Context, chainID int64, blockNumber uint64) (common.Hash, error) {
+	return common.Hash{}, nil
 }
 func (m *mockBlockRepo) DeleteFrom(ctx context.Context, chainID int64, fromBlock uint64) error {
 	return nil
