@@ -80,14 +80,9 @@ func LoadAPI() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL is required")
+	if err := cfg.validateBase(); err != nil {
+		return nil, err
 	}
-	if cfg.ChainID == 0 {
-		return nil, fmt.Errorf("CHAIN_ID is required")
-	}
-
 	return cfg, nil
 }
 
@@ -96,12 +91,8 @@ func LoadIndexer() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("DATABASE_URL is required")
-	}
-	if cfg.ChainID == 0 {
-		return nil, fmt.Errorf("CHAIN_ID is required")
+	if err := cfg.validateBase(); err != nil {
+		return nil, err
 	}
 	if cfg.RPCURL == "" {
 		return nil, fmt.Errorf("RPC_URL is required")
@@ -109,8 +100,17 @@ func LoadIndexer() (*Config, error) {
 	if cfg.FactoryAddr == "" {
 		return nil, fmt.Errorf("FACTORY_ADDRESS is required")
 	}
-
 	return cfg, nil
+}
+
+func (c *Config) validateBase() error {
+	if c.DatabaseURL == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	if c.ChainID == 0 {
+		return fmt.Errorf("CHAIN_ID is required")
+	}
+	return nil
 }
 
 func envOrDefault(key, defaultVal string) string {
