@@ -7,7 +7,6 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
@@ -15,8 +14,7 @@ import (
 	ethabi "github.com/cca/go-indexer/internal/eth/abi"
 )
 
-// AuctionParameters mirrors the configData tuple in the AuctionCreated event.
-type AuctionParameters struct {
+type auctionParameters struct {
 	Currency               common.Address
 	TokensRecipient        common.Address
 	FundsRecipient         common.Address
@@ -30,41 +28,10 @@ type AuctionParameters struct {
 	AuctionStepsData       []byte
 }
 
-// auctionParamsABIArgs defines the ABI encoding for the AuctionParameters tuple.
-var auctionParamsABIArgs = abi.Arguments{
-	{Name: "currency", Type: mustType("address")},
-	{Name: "tokensRecipient", Type: mustType("address")},
-	{Name: "fundsRecipient", Type: mustType("address")},
-	{Name: "startBlock", Type: mustType("uint64")},
-	{Name: "endBlock", Type: mustType("uint64")},
-	{Name: "claimBlock", Type: mustType("uint64")},
-	{Name: "tickSpacing", Type: mustType("uint256")},
-	{Name: "validationHook", Type: mustType("address")},
-	{Name: "floorPrice", Type: mustType("uint256")},
-	{Name: "requiredCurrencyRaised", Type: mustType("uint128")},
-	{Name: "auctionStepsData", Type: mustType("bytes")},
-}
-
-// eventDataABIArgs defines the ABI encoding for the non-indexed event fields (amount, configData).
-var eventDataABIArgs = abi.Arguments{
-	{Name: "amount", Type: mustType("uint256")},
-	{Name: "configData", Type: mustType("bytes")},
-}
-
-func mustType(t string) abi.Type {
-	typ, err := abi.NewType(t, "", nil)
-	if err != nil {
-		panic("bad abi type: " + t + ": " + err.Error())
-	}
-	return typ
-}
-
-// buildTestLogData ABI-encodes the non-indexed event data: (amount uint256, configData bytes).
-// configData is itself the ABI-encoded AuctionParameters tuple.
-func buildTestLogData(t *testing.T, amount *big.Int, params AuctionParameters) []byte {
+func buildTestLogData(t *testing.T, amount *big.Int, params auctionParameters) []byte {
 	t.Helper()
 
-	configData, err := auctionParamsABIArgs.Pack(
+	configData, err := auctionParamsArgs.Pack(
 		params.Currency,
 		params.TokensRecipient,
 		params.FundsRecipient,
@@ -81,19 +48,18 @@ func buildTestLogData(t *testing.T, amount *big.Int, params AuctionParameters) [
 		t.Fatalf("failed to pack configData: %v", err)
 	}
 
-	data, err := eventDataABIArgs.Pack(amount, configData)
+	data, err := eventDataArgs.Pack(amount, configData)
 	if err != nil {
 		t.Fatalf("failed to pack event data: %v", err)
 	}
 	return data
 }
 
-// testFixture holds shared test values used across multiple tests.
 type testFixture struct {
 	auctionAddr common.Address
 	tokenAddr   common.Address
 	amount      *big.Int
-	params      AuctionParameters
+	params      auctionParameters
 	chainID     int64
 	blockNumber uint64
 	blockHash   common.Hash
@@ -106,7 +72,7 @@ func defaultFixture() testFixture {
 		auctionAddr: common.HexToAddress("0x1111111111111111111111111111111111111111"),
 		tokenAddr:   common.HexToAddress("0x2222222222222222222222222222222222222222"),
 		amount:      big.NewInt(1_000_000),
-		params: AuctionParameters{
+		params: auctionParameters{
 			Currency:               common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
 			TokensRecipient:        common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"),
 			FundsRecipient:         common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"),
@@ -280,7 +246,6 @@ func TestHandle_InsertsRawEvent(t *testing.T) {
 		t.Errorf("EventName = %q, want %q", ev.EventName, "AuctionCreated")
 	}
 
-	// TopicsJSON should be a JSON array of hex topic strings
 	var topics []string
 	if err := json.Unmarshal([]byte(ev.TopicsJSON), &topics); err != nil {
 		t.Fatalf("TopicsJSON is not valid JSON: %v", err)
@@ -292,12 +257,10 @@ func TestHandle_InsertsRawEvent(t *testing.T) {
 		t.Errorf("topics[0] = %s, want %s", topics[0], ethabi.AuctionCreatedEventID.Hex())
 	}
 
-	// DataHex should be hex-encoded log data
 	if ev.DataHex == "" {
 		t.Error("DataHex should not be empty")
 	}
 
-	// DecodedJSON should contain decoded field values
 	if ev.DecodedJSON == "" {
 		t.Error("DecodedJSON should not be empty")
 	}
@@ -318,7 +281,6 @@ func TestHandle_InsertsTypedAuction(t *testing.T) {
 		t.Fatal("expected auction to be inserted")
 	}
 
-	// Verify all fields are correctly mapped
 	if a.ChainID != fix.chainID {
 		t.Errorf("ChainID = %d, want %d", a.ChainID, fix.chainID)
 	}
@@ -348,7 +310,6 @@ func TestHandle_ReturnsErrorOnMalformedData(t *testing.T) {
 	h := &AuctionCreatedHandler{}
 
 	logEntry := fix.buildLog(t)
-	// Truncate the data to make it invalid
 	logEntry.Data = logEntry.Data[:10]
 
 	err := h.Handle(context.Background(), fix.chainID, logEntry, s)

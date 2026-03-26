@@ -26,7 +26,6 @@ func (h *AuctionCreatedHandler) EventID() common.Hash {
 	return ethabi.AuctionCreatedEventID
 }
 
-// auctionParamsArgs defines the ABI types for the configData tuple.
 var auctionParamsArgs = abi.Arguments{
 	{Name: "currency", Type: mustABIType("address")},
 	{Name: "tokensRecipient", Type: mustABIType("address")},
@@ -41,7 +40,6 @@ var auctionParamsArgs = abi.Arguments{
 	{Name: "auctionStepsData", Type: mustABIType("bytes")},
 }
 
-// eventDataArgs defines the ABI types for the non-indexed event fields.
 var eventDataArgs = abi.Arguments{
 	{Name: "amount", Type: mustABIType("uint256")},
 	{Name: "configData", Type: mustABIType("bytes")},
@@ -56,11 +54,9 @@ func mustABIType(t string) abi.Type {
 }
 
 func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
-	// Decode indexed fields from topics
 	auctionAddr := common.BytesToAddress(log.Topics[1].Bytes())
 	tokenAddr := common.BytesToAddress(log.Topics[2].Bytes())
 
-	// Decode non-indexed fields from data
 	vals, err := eventDataArgs.Unpack(log.Data)
 	if err != nil {
 		return fmt.Errorf("unpack event data: %w", err)
@@ -68,7 +64,6 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 	amount := vals[0].(*big.Int)
 	configData := vals[1].([]byte)
 
-	// Decode configData into auction parameters
 	paramVals, err := auctionParamsArgs.Unpack(configData)
 	if err != nil {
 		return fmt.Errorf("unpack config data: %w", err)
@@ -84,14 +79,12 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 	floorPrice := paramVals[8].(*big.Int)
 	requiredCurrencyRaised := paramVals[9].(*big.Int)
 
-	// Build TopicsJSON
 	topicStrs := make([]string, len(log.Topics))
 	for i, t := range log.Topics {
 		topicStrs[i] = t.Hex()
 	}
 	topicsJSON, _ := json.Marshal(topicStrs)
 
-	// Build DecodedJSON
 	decoded := map[string]interface{}{
 		"auctionAddress":         auctionAddr.Hex(),
 		"token":                  tokenAddr.Hex(),
@@ -109,7 +102,6 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 	}
 	decodedJSON, _ := json.Marshal(decoded)
 
-	// Insert raw event
 	rawEvent := &cca.RawEvent{
 		ChainID:     chainID,
 		BlockNumber: log.BlockNumber,
@@ -126,7 +118,6 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 		return fmt.Errorf("insert raw event: %w", err)
 	}
 
-	// Insert typed auction
 	auction := &cca.Auction{
 		AuctionAddress:         auctionAddr,
 		Token:                  tokenAddr,
