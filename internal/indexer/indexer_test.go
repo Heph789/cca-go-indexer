@@ -66,7 +66,7 @@ func TestIndexer_LoadsCursorFromStore(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:    1,
 		StartBlock: 1,
@@ -114,7 +114,7 @@ func TestIndexer_UsesStartBlockWhenNoCursor(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:    1,
 		StartBlock: 50,
@@ -161,7 +161,7 @@ func TestIndexer_CorrectBlockRange(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:        1,
 		StartBlock:     1,
@@ -219,7 +219,7 @@ func TestIndexer_DispatchesLogsThroughRegistry(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry(handler)
+	registry := NewRegistry(noopLogger(), handler)
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:    1,
 		StartBlock: 1,
@@ -274,7 +274,7 @@ func TestIndexer_InsertsBlockHashes(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:        1,
 		StartBlock:     1,
@@ -329,7 +329,7 @@ func TestIndexer_AdvancesCursorToEndOfBatch(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:        1,
 		StartBlock:     1,
@@ -365,7 +365,7 @@ func TestIndexer_SleepsWhenAtChainHead(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:      1,
 		StartBlock:   1,
@@ -410,7 +410,7 @@ func TestIndexer_AppliesConfirmationsBuffer(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:        1,
 		StartBlock:     1,
@@ -439,7 +439,7 @@ func TestIndexer_StopsWhenContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:    1,
 		StartBlock: 1,
@@ -501,7 +501,7 @@ func TestIndexer_HeadersFetchedConcurrently(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:           1,
 		StartBlock:        1,
@@ -566,7 +566,7 @@ func TestIndexer_HeaderConcurrencyBounded(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:           1,
 		StartBlock:        1,
@@ -635,7 +635,7 @@ func TestIndexer_HeaderFetchErrorCancelsRemaining(t *testing.T) {
 		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:           1,
 		StartBlock:        1,
@@ -710,7 +710,7 @@ func TestIndexer_HeaderResultOrderMatchesBlockNumber(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:           1,
 		StartBlock:        1,
@@ -782,7 +782,7 @@ func TestIndexer_HeaderConcurrencyDefaultsToOne(t *testing.T) {
 		return nil
 	}
 
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 	// HeaderConcurrency is 0 (zero value) — should default to 1 (sequential).
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:        1,
@@ -875,7 +875,7 @@ func TestIndexer_AllWritesInsideWithTx(t *testing.T) {
 		return fn(txStore)
 	}
 
-	registry := NewRegistry(handler)
+	registry := NewRegistry(noopLogger(), handler)
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:        1,
 		StartBlock:     1,
