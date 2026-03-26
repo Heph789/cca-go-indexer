@@ -13,6 +13,18 @@ import (
 
 type auctionRepo struct{ q querier }
 
+func lowerHex(addr common.Address) string {
+	return strings.ToLower(addr.Hex())
+}
+
+func parseBigInt(s string) *big.Int {
+	n, ok := new(big.Int).SetString(s, 10)
+	if !ok {
+		return big.NewInt(0)
+	}
+	return n
+}
+
 func (r *auctionRepo) Insert(ctx context.Context, auction *cca.Auction) error {
 	_, err := r.q.Exec(ctx,
 		`INSERT INTO event_ccaf_auction_created (
@@ -23,17 +35,17 @@ func (r *auctionRepo) Insert(ctx context.Context, auction *cca.Auction) error {
 		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
 		ON CONFLICT DO NOTHING`,
 		auction.ChainID,
-		strings.ToLower(auction.AuctionAddress.Hex()),
-		strings.ToLower(auction.Token.Hex()),
+		lowerHex(auction.AuctionAddress),
+		lowerHex(auction.Token),
 		auction.Amount.String(),
-		strings.ToLower(auction.Currency.Hex()),
-		strings.ToLower(auction.TokensRecipient.Hex()),
-		strings.ToLower(auction.FundsRecipient.Hex()),
+		lowerHex(auction.Currency),
+		lowerHex(auction.TokensRecipient),
+		lowerHex(auction.FundsRecipient),
 		auction.StartBlock,
 		auction.EndBlock,
 		auction.ClaimBlock,
 		auction.TickSpacing.String(),
-		strings.ToLower(auction.ValidationHook.Hex()),
+		lowerHex(auction.ValidationHook),
 		auction.FloorPrice.String(),
 		auction.RequiredCurrencyRaised.String(),
 		auction.BlockNumber,
@@ -83,22 +95,10 @@ func (r *auctionRepo) GetByAddress(ctx context.Context, chainID int64, auctionAd
 		return nil, err
 	}
 
-	amount, ok := new(big.Int).SetString(amountStr, 10)
-	if !ok {
-		amount = big.NewInt(0)
-	}
-	tickSpacing, ok := new(big.Int).SetString(tickSpacingStr, 10)
-	if !ok {
-		tickSpacing = big.NewInt(0)
-	}
-	floorPrice, ok := new(big.Int).SetString(floorPriceStr, 10)
-	if !ok {
-		floorPrice = big.NewInt(0)
-	}
-	reqCurrRaised, ok := new(big.Int).SetString(reqCurrRaisedStr, 10)
-	if !ok {
-		reqCurrRaised = big.NewInt(0)
-	}
+	amount := parseBigInt(amountStr)
+	tickSpacing := parseBigInt(tickSpacingStr)
+	floorPrice := parseBigInt(floorPriceStr)
+	reqCurrRaised := parseBigInt(reqCurrRaisedStr)
 
 	return &cca.Auction{
 		ChainID:                chainIDVal,
