@@ -28,9 +28,7 @@ func testStore(t *testing.T) store.Store {
 }
 
 func TestNew_ReturnsWorkingStore(t *testing.T) {
-	s := testStore(t)
-	// If we got here, connection and migrations succeeded.
-	_ = s
+	testStore(t)
 }
 
 func TestNew_ErrorForInvalidURL(t *testing.T) {
