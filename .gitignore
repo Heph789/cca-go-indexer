@@ -1,0 +1,9 @@
+.claude/scheduled_tasks.lock
+
+# Local dev files
+local_ignored/
+
+# Foundry artifacts
+simulate/chain/out/
+simulate/chain/cache/
+simulate/chain/broadcast/

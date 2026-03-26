@@ -1,0 +1,3 @@
+[submodule "reference/continuous-clearing-auction"]
+	path = reference/continuous-clearing-auction
+	url = https://github.com/Uniswap/continuous-clearing-auction
