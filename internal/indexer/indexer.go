@@ -24,7 +24,6 @@ type IndexerConfig struct {
 }
 
 type ChainIndexer struct {
-	chainID   int64
 	ethClient eth.Client
 	store     store.Store
 	registry  *HandlerRegistry
@@ -34,7 +33,6 @@ type ChainIndexer struct {
 
 func New(ethClient eth.Client, s store.Store, registry *HandlerRegistry, config IndexerConfig, logger *slog.Logger) *ChainIndexer {
 	return &ChainIndexer{
-		chainID:   config.ChainID,
 		ethClient: ethClient,
 		store:     s,
 		registry:  registry,
@@ -44,7 +42,7 @@ func New(ethClient eth.Client, s store.Store, registry *HandlerRegistry, config 
 }
 
 func (idx *ChainIndexer) Run(ctx context.Context) error {
-	cursor, _, err := idx.store.CursorRepo().Get(ctx, idx.chainID)
+	cursor, _, err := idx.store.CursorRepo().Get(ctx, idx.config.ChainID)
 	if err != nil {
 		return fmt.Errorf("loading cursor: %w", err)
 	}
@@ -106,19 +104,19 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 
 		err = idx.store.WithTx(ctx, func(txStore store.Store) error {
 			for _, log := range logs {
-				if err := idx.registry.HandleLog(ctx, idx.chainID, log, txStore); err != nil {
+				if err := idx.registry.HandleLog(ctx, idx.config.ChainID, log, txStore); err != nil {
 					return fmt.Errorf("handling log: %w", err)
 				}
 			}
 
 			for block := from; block <= to; block++ {
 				h := headers[block]
-				if err := txStore.BlockRepo().Insert(ctx, idx.chainID, block, h.hash, h.parentHash); err != nil {
+				if err := txStore.BlockRepo().Insert(ctx, idx.config.ChainID, block, h.hash, h.parentHash); err != nil {
 					return fmt.Errorf("inserting block %d: %w", block, err)
 				}
 			}
 
-			if err := txStore.CursorRepo().Upsert(ctx, idx.chainID, to, lastBlockHash); err != nil {
+			if err := txStore.CursorRepo().Upsert(ctx, idx.config.ChainID, to, lastBlockHash); err != nil {
 				return fmt.Errorf("upserting cursor: %w", err)
 			}
 
