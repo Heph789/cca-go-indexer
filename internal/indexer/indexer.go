@@ -74,10 +74,7 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 		}
 
 		from := cursor + 1
-		to := cursor + idx.config.BlockBatchSize
-		if to > safeHead {
-			to = safeHead
-		}
+		to := min(cursor+idx.config.BlockBatchSize, safeHead)
 
 		logs, err := idx.ethClient.FilterLogs(ctx, ethereum.FilterQuery{
 			FromBlock: new(big.Int).SetUint64(from),
