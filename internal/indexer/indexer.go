@@ -26,6 +26,11 @@ type IndexerConfig struct {
 	Addresses          []common.Address
 }
 
+type blockHeader struct {
+	hash       string
+	parentHash string
+}
+
 type ChainIndexer struct {
 	ethClient eth.Client
 	store     store.Store
@@ -94,24 +99,18 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			concurrency = 1
 		}
 
-		type blockHeader struct {
-			hash       string
-			parentHash string
-		}
-		headerResults := make([]blockHeader, to-from+1)
+		headers := make([]blockHeader, to-from+1)
 
 		g, gCtx := errgroup.WithContext(ctx)
 		g.SetLimit(concurrency)
 
 		for block := from; block <= to; block++ {
-			block := block // capture loop var
 			g.Go(func() error {
 				header, err := idx.ethClient.HeaderByNumber(gCtx, new(big.Int).SetUint64(block))
 				if err != nil {
 					return fmt.Errorf("getting header for block %d: %w", block, err)
 				}
-				i := block - from
-				headerResults[i] = blockHeader{
+				headers[block-from] = blockHeader{
 					hash:       header.Hash().Hex(),
 					parentHash: header.ParentHash.Hex(),
 				}
@@ -123,14 +122,7 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			return fmt.Errorf("fetching headers: %w", err)
 		}
 
-		// Build the headers map from ordered results
-		headers := make(map[uint64]struct{ hash, parentHash string }, to-from+1)
-		for i, h := range headerResults {
-			block := from + uint64(i)
-			headers[block] = struct{ hash, parentHash string }{h.hash, h.parentHash}
-		}
-
-		lastBlockHash := headers[to].hash
+		lastBlockHash := headers[to-from].hash
 
 		err = idx.store.WithTx(ctx, func(txStore store.Store) error {
 			for _, log := range logs {
@@ -139,8 +131,8 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 				}
 			}
 
-			for block := from; block <= to; block++ {
-				h := headers[block]
+			for i, h := range headers {
+				block := from + uint64(i)
 				if err := txStore.BlockRepo().Insert(ctx, idx.config.ChainID, block, h.hash, h.parentHash); err != nil {
 					return fmt.Errorf("inserting block %d: %w", block, err)
 				}
