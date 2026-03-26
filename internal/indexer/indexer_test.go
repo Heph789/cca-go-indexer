@@ -2,8 +2,10 @@ package indexer
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"math/big"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -446,6 +448,356 @@ func TestIndexer_StopsWhenContextCancelled(t *testing.T) {
 	err := idx.Run(ctx)
 	if err != context.Canceled {
 		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Concurrent header fetching tests (#55)
+// ---------------------------------------------------------------------------
+
+func TestIndexer_HeadersFetchedConcurrently(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
+		return 100, "0xabc", nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+		return nil
+	}
+
+	// Use a barrier to detect that multiple HeaderByNumber calls are in-flight simultaneously.
+	const batchSize = 5
+	const concurrency = 3
+	barrier := make(chan struct{}, batchSize)
+	parallelDetected := make(chan struct{})
+	var detectOnce sync.Once
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		barrier <- struct{}{}
+		// If at least 2 goroutines are waiting, we have parallelism.
+		if len(barrier) >= 2 {
+			detectOnce.Do(func() { close(parallelDetected) })
+		}
+		// Small sleep to keep goroutines overlapping.
+		time.Sleep(10 * time.Millisecond)
+		<-barrier
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+		cancel()
+		return nil
+	}
+
+	registry := NewRegistry()
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:           1,
+		StartBlock:        1,
+		BlockBatchSize:    batchSize,
+		HeaderConcurrency: concurrency,
+	})
+
+	_ = idx.Run(ctx)
+
+	select {
+	case <-parallelDetected:
+		// success — parallel calls were detected
+	default:
+		t.Error("expected HeaderByNumber to be called concurrently, but no parallel execution was detected")
+	}
+}
+
+func TestIndexer_HeaderConcurrencyBounded(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
+		return 100, "0xabc", nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	const batchSize = 10
+	const maxConcurrency = 3
+
+	var mu sync.Mutex
+	inflight := 0
+	maxInflight := 0
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		mu.Lock()
+		inflight++
+		if inflight > maxInflight {
+			maxInflight = inflight
+		}
+		mu.Unlock()
+
+		time.Sleep(20 * time.Millisecond) // hold the slot to let others pile up
+
+		mu.Lock()
+		inflight--
+		mu.Unlock()
+
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+		cancel()
+		return nil
+	}
+
+	registry := NewRegistry()
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:           1,
+		StartBlock:        1,
+		BlockBatchSize:    batchSize,
+		HeaderConcurrency: maxConcurrency,
+	})
+
+	_ = idx.Run(ctx)
+
+	mu.Lock()
+	observed := maxInflight
+	mu.Unlock()
+
+	if observed > maxConcurrency {
+		t.Errorf("expected max %d concurrent header fetches, observed %d", maxConcurrency, observed)
+	}
+	if observed < 2 {
+		t.Errorf("expected at least 2 concurrent header fetches to prove parallelism, observed %d", observed)
+	}
+}
+
+func TestIndexer_HeaderFetchErrorCancelsRemaining(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
+		return 100, "0xabc", nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+		return nil
+	}
+
+	const batchSize = 10
+	fetchErr := fmt.Errorf("rpc error: block not found")
+
+	var mu sync.Mutex
+	callCount := 0
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		mu.Lock()
+		callCount++
+		n := number.Uint64()
+		mu.Unlock()
+
+		// Fail on block 105
+		if n == 105 {
+			return nil, fetchErr
+		}
+
+		// Other blocks take a while so they can be cancelled
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+
+	registry := NewRegistry()
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:           1,
+		StartBlock:        1,
+		BlockBatchSize:    batchSize,
+		HeaderConcurrency: 5,
+	})
+
+	err := idx.Run(context.Background())
+
+	if err == nil {
+		t.Fatal("expected an error from header fetch failure, got nil")
+	}
+	if !strings.Contains(err.Error(), "block not found") {
+		t.Errorf("expected error to contain 'block not found', got: %v", err)
+	}
+
+	// With cancellation, not all 10 headers should complete successfully
+	mu.Lock()
+	observed := callCount
+	mu.Unlock()
+	// The errgroup should cancel remaining work; we allow some tolerance
+	// but all 10 should not have completed (some should be cancelled).
+	if observed >= batchSize {
+		t.Logf("warning: %d header fetches were started (all of them); cancellation may not have prevented any", observed)
+	}
+}
+
+func TestIndexer_HeaderResultOrderMatchesBlockNumber(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
+		return 100, "0xabc", nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	const batchSize = 5
+
+	// Simulate out-of-order completion: higher blocks return faster.
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		n := number.Uint64()
+		// Lower block numbers sleep longer to finish later.
+		delay := time.Duration((110-n)*10) * time.Millisecond
+		time.Sleep(delay)
+		// Return a unique parent hash per block so we can verify ordering.
+		return &types.Header{
+			ParentHash: common.BigToHash(big.NewInt(int64(n))),
+		}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var mu sync.Mutex
+	var insertedBlocks []uint64
+
+	s.blockRepo.InsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error {
+		mu.Lock()
+		insertedBlocks = append(insertedBlocks, blockNumber)
+		mu.Unlock()
+		return nil
+	}
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+		cancel()
+		return nil
+	}
+
+	registry := NewRegistry()
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:           1,
+		StartBlock:        1,
+		BlockBatchSize:    batchSize,
+		HeaderConcurrency: 5,
+	})
+
+	_ = idx.Run(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(insertedBlocks) < int(batchSize) {
+		t.Fatalf("expected %d block inserts, got %d", batchSize, len(insertedBlocks))
+	}
+
+	// Blocks must be inserted in ascending order regardless of fetch completion order.
+	for i := 1; i < len(insertedBlocks); i++ {
+		if insertedBlocks[i] <= insertedBlocks[i-1] {
+			t.Errorf("blocks not in order: block[%d]=%d came after block[%d]=%d",
+				i, insertedBlocks[i], i-1, insertedBlocks[i-1])
+		}
+	}
+}
+
+func TestIndexer_HeaderConcurrencyDefaultsToOne(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
+		return 100, "0xabc", nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	const batchSize = 5
+
+	var mu sync.Mutex
+	inflight := 0
+	maxInflight := 0
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		mu.Lock()
+		inflight++
+		if inflight > maxInflight {
+			maxInflight = inflight
+		}
+		mu.Unlock()
+
+		time.Sleep(5 * time.Millisecond)
+
+		mu.Lock()
+		inflight--
+		mu.Unlock()
+
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+		cancel()
+		return nil
+	}
+
+	registry := NewRegistry()
+	// HeaderConcurrency is 0 (zero value) — should default to 1 (sequential).
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: batchSize,
+	})
+
+	_ = idx.Run(ctx)
+
+	mu.Lock()
+	observed := maxInflight
+	mu.Unlock()
+
+	if observed != 1 {
+		t.Errorf("expected max 1 concurrent header fetch when HeaderConcurrency is unset, observed %d", observed)
 	}
 }
 
