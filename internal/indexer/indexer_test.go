@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/big"
 	"strings"
@@ -18,7 +19,7 @@ import (
 )
 
 func noopLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(nil, nil))
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // helper to build a ChainIndexer with common defaults
@@ -892,5 +893,378 @@ func TestIndexer_AllWritesInsideWithTx(t *testing.T) {
 	}
 	if !cursorUpsertUsedTxStore {
 		t.Error("expected CursorRepo.Upsert to be called within WithTx")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Retry budget & error recovery tests (#39)
+// ---------------------------------------------------------------------------
+
+func TestHandleLoopError_IncrementsCounter(t *testing.T) {
+	idx := New(&mockEthClient{}, newMockStore(), NewRegistry(noopLogger()), IndexerConfig{ChainID: 1}, noopLogger())
+	counter := 0
+	idx.handleLoopError(&counter, "test op", fmt.Errorf("boom"))
+	if counter != 1 {
+		t.Errorf("expected counter=1, got %d", counter)
+	}
+	idx.handleLoopError(&counter, "test op", fmt.Errorf("boom"))
+	if counter != 2 {
+		t.Errorf("expected counter=2, got %d", counter)
+	}
+}
+
+func TestHandleLoopError_ReturnsFalseUnderMax(t *testing.T) {
+	idx := New(&mockEthClient{}, newMockStore(), NewRegistry(noopLogger()), IndexerConfig{ChainID: 1}, noopLogger())
+	counter := 0
+	for i := 0; i < maxLoopRetries-1; i++ {
+		shouldExit := idx.handleLoopError(&counter, "test op", fmt.Errorf("boom"))
+		if shouldExit {
+			t.Fatalf("expected false at attempt %d, got true", i+1)
+		}
+	}
+}
+
+func TestHandleLoopError_ReturnsTrueAtMax(t *testing.T) {
+	idx := New(&mockEthClient{}, newMockStore(), NewRegistry(noopLogger()), IndexerConfig{ChainID: 1}, noopLogger())
+	counter := 0
+	var shouldExit bool
+	for i := 0; i < maxLoopRetries; i++ {
+		shouldExit = idx.handleLoopError(&counter, "test op", fmt.Errorf("boom"))
+	}
+	if !shouldExit {
+		t.Fatal("expected true when reaching maxLoopRetries")
+	}
+}
+
+func TestIndexer_RetriesOnBlockNumberError(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	var callCount int32
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		callCount++
+		if callCount == 1 {
+			return 0, fmt.Errorf("rpc timeout")
+		}
+		return 200, nil
+	}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
+		cancel()
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:      1,
+		StartBlock:   1,
+		PollInterval: time.Millisecond,
+	})
+
+	err := idx.Run(ctx)
+	if err != nil && err != context.Canceled {
+		t.Fatalf("expected indexer to recover from transient BlockNumber error, got: %v", err)
+	}
+	if callCount < 2 {
+		t.Errorf("expected BlockNumber to be called at least twice (retry), got %d", callCount)
+	}
+}
+
+func TestIndexer_RetriesOnFilterLogsError(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+
+	var filterCallCount int32
+	ctx, cancel := context.WithCancel(context.Background())
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		filterCallCount++
+		if filterCallCount == 1 {
+			return nil, fmt.Errorf("rpc timeout")
+		}
+		return nil, nil
+	}
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
+		cancel()
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:      1,
+		StartBlock:   1,
+		PollInterval: time.Millisecond,
+	})
+
+	err := idx.Run(ctx)
+	if err != nil && err != context.Canceled {
+		t.Fatalf("expected indexer to recover from transient FilterLogs error, got: %v", err)
+	}
+	if filterCallCount < 2 {
+		t.Errorf("expected FilterLogs to be called at least twice (retry), got %d", filterCallCount)
+	}
+}
+
+func TestIndexer_RetriesOnHeaderError(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	var headerCallCount int32
+	var mu sync.Mutex
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		mu.Lock()
+		headerCallCount++
+		count := headerCallCount
+		mu.Unlock()
+		// Fail on the very first call only
+		if count == 1 {
+			return nil, fmt.Errorf("rpc timeout")
+		}
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
+		cancel()
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: 1,
+		PollInterval:   time.Millisecond,
+	})
+
+	err := idx.Run(ctx)
+	if err != nil && err != context.Canceled {
+		t.Fatalf("expected indexer to recover from transient header error, got: %v", err)
+	}
+}
+
+func TestIndexer_RetriesOnWithTxError(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	var txCallCount int32
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s.WithTxFn = func(ctx context.Context, fn func(txStore store.Store) error) error {
+		txCallCount++
+		if txCallCount == 1 {
+			return fmt.Errorf("db connection lost")
+		}
+		txStore := &mockStore{
+			auctionRepo:  s.auctionRepo,
+			rawEventRepo: s.rawEventRepo,
+			cursorRepo:   s.cursorRepo,
+			blockRepo:    s.blockRepo,
+		}
+		err := fn(txStore)
+		if err != nil {
+			return err
+		}
+		cancel()
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: 1,
+		PollInterval:   time.Millisecond,
+	})
+
+	err := idx.Run(ctx)
+	if err != nil && err != context.Canceled {
+		t.Fatalf("expected indexer to recover from transient WithTx error, got: %v", err)
+	}
+	if txCallCount < 2 {
+		t.Errorf("expected WithTx to be called at least twice (retry), got %d", txCallCount)
+	}
+}
+
+func TestIndexer_ResetsErrorCounterAfterSuccess(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	// BlockNumber fails on first call, succeeds on subsequent calls
+	var blockNumCalls int32
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		blockNumCalls++
+		if blockNumCalls == 1 {
+			return 0, fmt.Errorf("rpc timeout")
+		}
+		return 200, nil
+	}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	var batchCount int32
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
+		batchCount++
+		if batchCount >= 2 {
+			cancel()
+		}
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:      1,
+		StartBlock:   1,
+		PollInterval: time.Millisecond,
+	})
+
+	err := idx.Run(ctx)
+	if err != nil && err != context.Canceled {
+		t.Fatalf("expected no fatal error, got: %v", err)
+	}
+	// If we completed 2 batches after an initial error, the counter was reset
+	if batchCount < 2 {
+		t.Errorf("expected at least 2 successful batches, got %d", batchCount)
+	}
+}
+
+func TestIndexer_ExitsAfterMaxConsecutiveErrors(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	// Always fail
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 0, fmt.Errorf("persistent rpc error")
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:      1,
+		StartBlock:   1,
+		PollInterval: time.Millisecond,
+	})
+
+	err := idx.Run(context.Background())
+	if err == nil {
+		t.Fatal("expected error after max retries, got nil")
+	}
+	if !strings.Contains(err.Error(), "after") || !strings.Contains(err.Error(), "retries") {
+		t.Errorf("expected error message to mention retries, got: %v", err)
+	}
+}
+
+func TestIndexer_SkipsWhenChainTooYoungForConfirmations(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 0, common.Hash{}, nil
+	}
+
+	var blockNumCalls int32
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		blockNumCalls++
+		// Chain head is 5, confirmations is 10 => chain too young
+		if blockNumCalls <= 2 {
+			return 5, nil
+		}
+		// Eventually return a valid chain head so we can verify it didn't error
+		return 5, nil
+	}
+
+	filterLogsCalled := false
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		filterLogsCalled = true
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:       1,
+		StartBlock:    1,
+		Confirmations: 10,
+		PollInterval:  time.Millisecond,
+	})
+
+	err := idx.Run(ctx)
+	// Should exit via context timeout, not via an error
+	if err != nil && err != context.DeadlineExceeded {
+		t.Fatalf("expected context deadline exceeded or nil, got: %v", err)
+	}
+	if filterLogsCalled {
+		t.Error("expected FilterLogs NOT to be called when chain is too young for confirmations")
+	}
+	if blockNumCalls < 2 {
+		t.Errorf("expected BlockNumber to be called multiple times (polling), got %d", blockNumCalls)
 	}
 }
