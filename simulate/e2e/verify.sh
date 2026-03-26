@@ -35,8 +35,8 @@ echo ""
 
 # --- Check 1: Health endpoint ---
 echo "[1] Health check"
-HEALTH_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "$API_BASE/healthz" || echo "000")
-check "GET /healthz returns 200" "$( [[ "$HEALTH_STATUS" == "200" ]] && echo true || echo false )"
+HEALTH_STATUS=$(curl -sf -o /dev/null -w "%{http_code}" "$API_BASE/health" || echo "000")
+check "GET /health returns 200" "$( [[ "$HEALTH_STATUS" == "200" ]] && echo true || echo false )"
 
 # --- Check 2: Auction endpoint ---
 echo ""
