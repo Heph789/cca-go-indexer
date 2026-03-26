@@ -10,17 +10,20 @@ import (
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/cca/go-indexer/internal/eth"
 	"github.com/cca/go-indexer/internal/store"
 )
 
 type IndexerConfig struct {
-	ChainID        int64
-	StartBlock     uint64
-	PollInterval   time.Duration
-	BlockBatchSize uint64
-	Confirmations  uint64
-	Addresses      []common.Address
+	ChainID            int64
+	StartBlock         uint64
+	PollInterval       time.Duration
+	BlockBatchSize     uint64
+	Confirmations      uint64
+	HeaderConcurrency  int
+	Addresses          []common.Address
 }
 
 type ChainIndexer struct {
@@ -86,15 +89,45 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			return fmt.Errorf("filtering logs: %w", err)
 		}
 
-		headers := make(map[uint64]struct{ hash, parentHash string })
+		concurrency := idx.config.HeaderConcurrency
+		if concurrency <= 0 {
+			concurrency = 1
+		}
+
+		type blockHeader struct {
+			hash       string
+			parentHash string
+		}
+		headerResults := make([]blockHeader, to-from+1)
+
+		g, gCtx := errgroup.WithContext(ctx)
+		g.SetLimit(concurrency)
+
 		for block := from; block <= to; block++ {
-			header, err := idx.ethClient.HeaderByNumber(ctx, new(big.Int).SetUint64(block))
-			if err != nil {
-				return fmt.Errorf("getting header for block %d: %w", block, err)
-			}
-			blockHash := header.Hash().Hex()
-			parentHash := header.ParentHash.Hex()
-			headers[block] = struct{ hash, parentHash string }{blockHash, parentHash}
+			block := block // capture loop var
+			g.Go(func() error {
+				header, err := idx.ethClient.HeaderByNumber(gCtx, new(big.Int).SetUint64(block))
+				if err != nil {
+					return fmt.Errorf("getting header for block %d: %w", block, err)
+				}
+				i := block - from
+				headerResults[i] = blockHeader{
+					hash:       header.Hash().Hex(),
+					parentHash: header.ParentHash.Hex(),
+				}
+				return nil
+			})
+		}
+
+		if err := g.Wait(); err != nil {
+			return fmt.Errorf("fetching headers: %w", err)
+		}
+
+		// Build the headers map from ordered results
+		headers := make(map[uint64]struct{ hash, parentHash string }, to-from+1)
+		for i, h := range headerResults {
+			block := from + uint64(i)
+			headers[block] = struct{ hash, parentHash string }{h.hash, h.parentHash}
 		}
 
 		lastBlockHash := headers[to].hash
