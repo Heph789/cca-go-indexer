@@ -1,0 +1,28 @@
+[profile.default]
+src = "script"
+out = "out"
+libs = ["../../reference/continuous-clearing-auction/lib"]
+optimizer = true
+optimizer_runs = 11111
+bytecode_hash = "none"
+solc = "0.8.26"
+verbosity = 2
+ffi = true
+
+# Required for the factory contract compilation
+additional_compiler_profiles = [{ name = "via_ir", optimizer_runs = 11111, via_ir = true }]
+compilation_restrictions = [
+  { paths = "../../reference/continuous-clearing-auction/src/ContinuousClearingAuctionFactory.sol", via_ir = true }
+]
+
+remappings = [
+  "forge-std=../../reference/continuous-clearing-auction/lib/forge-std/src",
+  "@openzeppelin/contracts=../../reference/continuous-clearing-auction/lib/openzeppelin-contracts/contracts",
+  "@openzeppelin/contracts-upgradeable=../../reference/continuous-clearing-auction/lib/openzeppelin-contracts-upgradeable/contracts",
+  "solady=../../reference/continuous-clearing-auction/lib/solady/src",
+  "permit2=../../reference/continuous-clearing-auction/lib/permit2",
+  "v4-periphery=../../reference/continuous-clearing-auction/lib/v4-periphery",
+  "blocknumberish=../../reference/continuous-clearing-auction/lib/blocknumberish",
+  "continuous-clearing-auction=../../reference/continuous-clearing-auction/src/",
+  "test=../../reference/continuous-clearing-auction/test/",
+]
