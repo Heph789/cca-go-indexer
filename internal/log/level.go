@@ -1,6 +1,9 @@
 package log
 
-import "log/slog"
+import (
+	"log/slog"
+	"os"
+)
 
 func ParseLevel(level string) slog.Level {
 	switch level {
@@ -13,4 +16,15 @@ func ParseLevel(level string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
+}
+
+func NewLogger(level, format string) *slog.Logger {
+	opts := &slog.HandlerOptions{Level: ParseLevel(level)}
+	var handler slog.Handler
+	if format == "text" {
+		handler = slog.NewTextHandler(os.Stdout, opts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, opts)
+	}
+	return slog.New(handler)
 }

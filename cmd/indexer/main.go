@@ -24,14 +24,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	level := applog.ParseLevel(cfg.LogLevel)
-	var handler slog.Handler
-	if cfg.LogFormat == "text" {
-		handler = slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: level})
-	} else {
-		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})
-	}
-	logger := slog.New(handler)
+	logger := applog.NewLogger(cfg.LogLevel, cfg.LogFormat)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
