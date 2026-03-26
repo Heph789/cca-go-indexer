@@ -38,7 +38,20 @@ Use the simplifier agent to clean up the code. Watch especially for dead code.
 
 ### 5. PR
 
-Use /create-pr to create a **draft** PR based on the previous issue's branch. Label the PR as `pending review`.
+Use /create-pr to create a **draft** PR based on the previous issue's branch. Label the PR as `pending review`. After creating the PR, link it to the related issue using the GitHub GraphQL API:
+
+```bash
+# Get the PR node ID
+PR_ID=$(gh pr view <PR_NUMBER> --json id -q .id)
+# Get the issue node ID
+ISSUE_ID=$(gh issue view <ISSUE_NUMBER> --json id -q .id)
+# Link the PR to the issue
+gh api graphql -f query='mutation {
+  updatePullRequest(input: {pullRequestId: "'"$PR_ID"'", closingIssueIds: ["'"$ISSUE_ID"'"]}) {
+    pullRequest { id }
+  }
+}'
+```
 
 ### 6. Next
 
