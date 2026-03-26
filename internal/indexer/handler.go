@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -18,9 +19,10 @@ type EventHandler interface {
 
 type HandlerRegistry struct {
 	handlers map[common.Hash]EventHandler
+	logger   *slog.Logger
 }
 
-func NewRegistry(handlers ...EventHandler) *HandlerRegistry {
+func NewRegistry(logger *slog.Logger, handlers ...EventHandler) *HandlerRegistry {
 	m := make(map[common.Hash]EventHandler, len(handlers))
 	for _, h := range handlers {
 		id := h.EventID()
@@ -29,7 +31,7 @@ func NewRegistry(handlers ...EventHandler) *HandlerRegistry {
 		}
 		m[id] = h
 	}
-	return &HandlerRegistry{handlers: m}
+	return &HandlerRegistry{handlers: m, logger: logger}
 }
 
 func (r *HandlerRegistry) TopicFilter() [][]common.Hash {
@@ -47,7 +49,8 @@ func (r *HandlerRegistry) HandleLog(ctx context.Context, chainID int64, log type
 	topic0 := log.Topics[0]
 	handler, ok := r.handlers[topic0]
 	if !ok {
-		return fmt.Errorf("no handler registered for topic %s", topic0.Hex())
+		r.logger.Warn("skipping log with unregistered topic", "topic", topic0.Hex())
+		return nil
 	}
 	return handler.Handle(ctx, chainID, log, s)
 }
