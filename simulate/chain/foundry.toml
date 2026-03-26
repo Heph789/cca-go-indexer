@@ -1,7 +1,7 @@
 [profile.default]
 src = "script"
 out = "out"
-libs = ["../../reference/continuous-clearing-auction/lib"]
+libs = ["../../reference/continuous-clearing-auction/lib", "../../reference/continuous-clearing-auction/src", "../../reference/continuous-clearing-auction/test"]
 optimizer = true
 optimizer_runs = 11111
 bytecode_hash = "none"
