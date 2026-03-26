@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -20,13 +21,33 @@ type HandlerRegistry struct {
 }
 
 func NewRegistry(handlers ...EventHandler) *HandlerRegistry {
-	panic("not implemented")
+	m := make(map[common.Hash]EventHandler, len(handlers))
+	for _, h := range handlers {
+		id := h.EventID()
+		if _, exists := m[id]; exists {
+			panic(fmt.Sprintf("duplicate EventID %s: %s", id.Hex(), h.EventName()))
+		}
+		m[id] = h
+	}
+	return &HandlerRegistry{handlers: m}
 }
 
 func (r *HandlerRegistry) TopicFilter() [][]common.Hash {
-	panic("not implemented")
+	topics := make([]common.Hash, 0, len(r.handlers))
+	for id := range r.handlers {
+		topics = append(topics, id)
+	}
+	return [][]common.Hash{topics}
 }
 
 func (r *HandlerRegistry) HandleLog(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
-	panic("not implemented")
+	if len(log.Topics) == 0 {
+		return fmt.Errorf("log has no topics")
+	}
+	topic0 := log.Topics[0]
+	handler, ok := r.handlers[topic0]
+	if !ok {
+		return fmt.Errorf("no handler registered for topic %s", topic0.Hex())
+	}
+	return handler.Handle(ctx, chainID, log, s)
 }
