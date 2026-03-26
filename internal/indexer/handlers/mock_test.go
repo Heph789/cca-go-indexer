@@ -7,8 +7,6 @@ import (
 	"github.com/cca/go-indexer/internal/store"
 )
 
-// --- mockStore ---
-
 type mockStore struct {
 	auctionRepo  *mockAuctionRepo
 	rawEventRepo *mockRawEventRepo
@@ -33,8 +31,6 @@ func (m *mockStore) WithTx(ctx context.Context, fn func(txStore store.Store) err
 	return fn(m)
 }
 func (m *mockStore) Close() {}
-
-// --- mockAuctionRepo ---
 
 type mockAuctionRepo struct {
 	InsertFn          func(ctx context.Context, auction *cca.Auction) error
@@ -65,8 +61,6 @@ func (m *mockAuctionRepo) GetByAddress(ctx context.Context, chainID int64, aucti
 	return nil, nil
 }
 
-// --- mockRawEventRepo ---
-
 type mockRawEventRepo struct {
 	InsertFn          func(ctx context.Context, event *cca.RawEvent) error
 	InsertedEvent     *cca.RawEvent
@@ -88,8 +82,6 @@ func (m *mockRawEventRepo) DeleteFromBlock(ctx context.Context, chainID int64, f
 	return nil
 }
 
-// --- mockCursorRepo ---
-
 type mockCursorRepo struct{}
 
 func (m *mockCursorRepo) Get(ctx context.Context, chainID int64) (uint64, string, error) {
@@ -98,8 +90,6 @@ func (m *mockCursorRepo) Get(ctx context.Context, chainID int64) (uint64, string
 func (m *mockCursorRepo) Upsert(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
 	return nil
 }
-
-// --- mockBlockRepo ---
 
 type mockBlockRepo struct{}
 
