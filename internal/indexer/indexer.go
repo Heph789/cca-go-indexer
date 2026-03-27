@@ -16,6 +16,7 @@ import (
 	"github.com/cca/go-indexer/internal/store"
 )
 
+// IndexerConfig holds the parameters that control a ChainIndexer's polling behavior.
 type IndexerConfig struct {
 	ChainID            int64
 	StartBlock         uint64
@@ -33,6 +34,8 @@ type blockHeader struct {
 	parentHash common.Hash
 }
 
+// ChainIndexer polls an EVM chain for logs, dispatches them through a
+// HandlerRegistry, and persists block/cursor progress in a Store.
 type ChainIndexer struct {
 	ethClient eth.Client
 	store     store.Store
@@ -41,6 +44,7 @@ type ChainIndexer struct {
 	logger    *slog.Logger
 }
 
+// New constructs a ChainIndexer with the given dependencies and config.
 func New(ethClient eth.Client, s store.Store, registry *HandlerRegistry, config IndexerConfig, logger *slog.Logger) *ChainIndexer {
 	return &ChainIndexer{
 		ethClient: ethClient,
@@ -103,8 +107,18 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			}
 		}
 
+		if chainHead < idx.config.Confirmations {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
+		}
+
 		safeHead := chainHead - idx.config.Confirmations
 		if cursor >= safeHead {
+			idx.logger.Debug("at chain head, sleeping", "cursor", cursor, "safe_head", safeHead)
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -139,6 +153,8 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 
 		from := cursor + 1
 		to := min(cursor+idx.config.BlockBatchSize, safeHead)
+
+		idx.logger.Info("processing batch", "from", from, "to", to)
 
 		logs, err := idx.ethClient.FilterLogs(ctx, ethereum.FilterQuery{
 			FromBlock: new(big.Int).SetUint64(from),

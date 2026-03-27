@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
+// Verifies that HandleLog routes a log to the handler matching its topic0.
 func TestHandlerRegistry_DispatchesToCorrectHandler(t *testing.T) {
 	idA := common.HexToHash("0xaaaa")
 	idB := common.HexToHash("0xbbbb")
@@ -39,6 +40,7 @@ func TestHandlerRegistry_DispatchesToCorrectHandler(t *testing.T) {
 	}
 }
 
+// Verifies that TopicFilter includes every registered event ID.
 func TestHandlerRegistry_TopicFilterReturnsAllEventIDs(t *testing.T) {
 	idA := common.HexToHash("0xaaaa")
 	idB := common.HexToHash("0xbbbb")
@@ -73,6 +75,7 @@ func TestHandlerRegistry_TopicFilterReturnsAllEventIDs(t *testing.T) {
 	}
 }
 
+// Verifies that HandleLog returns an error when the log has no topics.
 func TestHandleLog_ErrorOnNoTopics(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 	registry := NewRegistry(logger)
@@ -91,6 +94,7 @@ func TestHandleLog_ErrorOnNoTopics(t *testing.T) {
 	}
 }
 
+// Verifies that HandleLog returns an error for a topic with no registered handler.
 func TestHandleLog_ErrorOnUnregisteredTopic(t *testing.T) {
 	idA := common.HexToHash("0xaaaa")
 	handlerA := &mockHandler{eventName: "EventA", eventID: idA}
@@ -137,6 +141,7 @@ func TestHandleLog_LogsWarningForUnregisteredTopic(t *testing.T) {
 	}
 }
 
+// Verifies that NewRegistry panics when two handlers share the same EventID.
 func TestNewRegistry_PanicsOnDuplicateEventID(t *testing.T) {
 	id := common.HexToHash("0xaaaa")
 	h1 := &mockHandler{eventName: "Event1", eventID: id}

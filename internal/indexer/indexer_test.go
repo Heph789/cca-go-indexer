@@ -33,6 +33,7 @@ func setupIndexer(ethClient *mockEthClient, s *mockStore, registry *HandlerRegis
 	return New(ethClient, s, registry, cfg, noopLogger())
 }
 
+// Verifies that Run resumes from the cursor position stored in the database.
 func TestIndexer_LoadsCursorFromStore(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
@@ -83,6 +84,7 @@ func TestIndexer_LoadsCursorFromStore(t *testing.T) {
 	}
 }
 
+// Verifies that Run begins from StartBlock when no cursor exists.
 func TestIndexer_UsesStartBlockWhenNoCursor(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
@@ -131,6 +133,7 @@ func TestIndexer_UsesStartBlockWhenNoCursor(t *testing.T) {
 	}
 }
 
+// Verifies that the filter query spans [cursor+1, cursor+batchSize].
 func TestIndexer_CorrectBlockRange(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
@@ -183,6 +186,7 @@ func TestIndexer_CorrectBlockRange(t *testing.T) {
 	}
 }
 
+// Verifies that fetched logs are dispatched through the HandlerRegistry.
 func TestIndexer_DispatchesLogsThroughRegistry(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
@@ -236,6 +240,7 @@ func TestIndexer_DispatchesLogsThroughRegistry(t *testing.T) {
 	}
 }
 
+// Verifies that block headers are inserted for every block in the batch.
 func TestIndexer_InsertsBlockHashes(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
@@ -299,6 +304,7 @@ func TestIndexer_InsertsBlockHashes(t *testing.T) {
 	}
 }
 
+// Verifies that the cursor is upserted to the last block of the batch.
 func TestIndexer_AdvancesCursorToEndOfBatch(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
@@ -344,6 +350,7 @@ func TestIndexer_AdvancesCursorToEndOfBatch(t *testing.T) {
 	}
 }
 
+// Verifies that Run sleeps instead of fetching logs when cursor is at chain head.
 func TestIndexer_SleepsWhenAtChainHead(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
@@ -380,6 +387,45 @@ func TestIndexer_SleepsWhenAtChainHead(t *testing.T) {
 	}
 }
 
+// Verifies that Run sleeps when chain head is below the required confirmations.
+func TestIndexer_SleepsWhenChainHeadBelowConfirmations(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
+		return 0, "", nil
+	}
+
+	// Chain head is 5 but confirmations require 10 — would underflow
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 5, nil
+	}
+
+	filterLogsCalled := false
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		filterLogsCalled = true
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	registry := NewRegistry()
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:       1,
+		StartBlock:    1,
+		Confirmations: 10,
+		PollInterval:  10 * time.Millisecond,
+	})
+
+	_ = idx.Run(ctx)
+
+	if filterLogsCalled {
+		t.Error("expected FilterLogs NOT to be called when chainHead < Confirmations")
+	}
+}
+
+// Verifies that ToBlock is capped at chainHead minus confirmations.
 func TestIndexer_AppliesConfirmationsBuffer(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
@@ -429,6 +475,7 @@ func TestIndexer_AppliesConfirmationsBuffer(t *testing.T) {
 	}
 }
 
+// Verifies that Run returns context.Canceled when the context is already done.
 func TestIndexer_StopsWhenContextCancelled(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
