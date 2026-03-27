@@ -11,6 +11,8 @@ Read the review triage doc at `$ARGUMENTS` and create GitHub issues for deferred
 - **Sub-Issues to Defer** — in-scope for the feature; created as sub-issues of the parent and inserted into the queue.
 - **Standalone Issues** — out of scope for the feature; created as root issues with no parent relationship.
 
+Note: With Graphite managing the stack, most review feedback should be fixed in-PR (see `/review-pr`). This skill handles the remaining items that are genuinely separate units of work.
+
 ## Process
 
 ### 1. Parse
