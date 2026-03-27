@@ -20,23 +20,42 @@ Before starting work on an issue, check its state using `gh`:
 - **Has an open or draft PR:** Skip it, move to the next issue.
 - **Labeled `question`:** Stop the entire process and wait for further instruction from the user.
 
-### 1. Branch
+### 1. Mark In-Progress
+
+Add the `in-progress` label to the issue:
+
+```bash
+gh issue edit <ISSUE_NUMBER> --add-label "in-progress"
+```
+
+### 2. Branch
 
 Checkout a new branch from the previous issue's branch using the naming convention defined by the issue.
 
-### 2. Red Phase — Tests First
+### 3. Red Phase — Tests First
 
-Use a subagent to create tests before any implementation (table-driven development). Create commits along the way and after finishing all tests. Ensure the tests run and fail.
+Use the `go-tester` agent to create tests before any implementation. This agent writes table-driven tests with thorough comments so reviewers can quickly understand what's being tested and why. Create commits along the way and after finishing all tests. Ensure the tests run and fail.
 
-### 3. Green Phase — Implementation
+### 4. Green Phase — Implementation
 
 Use a subagent to implement the issue such that the tests pass. This subagent should implement test by test, committing at each step.
 
-### 4. Simplify
+**Commenting standards:**
+- Every exported function and method gets a Go doc comment explaining what it does, its parameters, and its return values.
+- Every package gets a doc comment in `doc.go` (or at the top of the primary file) explaining the package's purpose and how it fits into the system.
+- Non-obvious internal logic gets inline comments explaining *why*, not *what*.
+
+### 5. Simplify
 
 Use the simplifier agent to clean up the code. Watch especially for dead code.
 
-### 5. PR
+### 6. PR
+
+Remove the `in-progress` label from the issue:
+
+```bash
+gh issue edit <ISSUE_NUMBER> --remove-label "in-progress"
+```
 
 Use /create-pr to create a **draft** PR based on the previous issue's branch. Label the PR as `pending review`. After creating the PR, link it to the related issue using the GitHub GraphQL API:
 
@@ -53,7 +72,7 @@ gh api graphql -f query='mutation {
 }'
 ```
 
-### 6. Next
+### 7. Next
 
 Move on to the next sub-issue.
 
