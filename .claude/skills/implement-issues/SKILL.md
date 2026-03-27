@@ -34,11 +34,16 @@ Checkout a new branch from the previous issue's branch using the naming conventi
 
 ### 3. Red Phase — Tests First
 
-Use a subagent to create tests before any implementation (table-driven development). Create commits along the way and after finishing all tests. Ensure the tests run and fail.
+Use the `go-tester` agent to create tests before any implementation. This agent writes table-driven tests with thorough comments so reviewers can quickly understand what's being tested and why. Create commits along the way and after finishing all tests. Ensure the tests run and fail.
 
 ### 4. Green Phase — Implementation
 
 Use a subagent to implement the issue such that the tests pass. This subagent should implement test by test, committing at each step.
+
+**Commenting standards:**
+- Every exported function and method gets a Go doc comment explaining what it does, its parameters, and its return values.
+- Every package gets a doc comment in `doc.go` (or at the top of the primary file) explaining the package's purpose and how it fits into the system.
+- Non-obvious internal logic gets inline comments explaining *why*, not *what*.
 
 ### 5. Simplify
 
