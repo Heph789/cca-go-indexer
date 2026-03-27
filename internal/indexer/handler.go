@@ -10,16 +10,21 @@ import (
 	"github.com/cca/go-indexer/internal/store"
 )
 
+// EventHandler processes a specific on-chain event type identified by its topic0 hash.
 type EventHandler interface {
 	EventName() string
 	EventID() common.Hash
 	Handle(ctx context.Context, chainID int64, log types.Log, s store.Store) error
 }
 
+// HandlerRegistry maps event topic0 hashes to their corresponding EventHandler
+// and provides dispatch and topic filtering for log subscription queries.
 type HandlerRegistry struct {
 	handlers map[common.Hash]EventHandler
 }
 
+// NewRegistry creates a HandlerRegistry from the given handlers.
+// It panics if two handlers share the same EventID.
 func NewRegistry(handlers ...EventHandler) *HandlerRegistry {
 	m := make(map[common.Hash]EventHandler, len(handlers))
 	for _, h := range handlers {
@@ -32,6 +37,8 @@ func NewRegistry(handlers ...EventHandler) *HandlerRegistry {
 	return &HandlerRegistry{handlers: m}
 }
 
+// TopicFilter returns all registered event IDs in the [][]common.Hash shape
+// expected by ethereum.FilterQuery.Topics (OR over topic0 position).
 func (r *HandlerRegistry) TopicFilter() [][]common.Hash {
 	topics := make([]common.Hash, 0, len(r.handlers))
 	for id := range r.handlers {
@@ -40,6 +47,8 @@ func (r *HandlerRegistry) TopicFilter() [][]common.Hash {
 	return [][]common.Hash{topics}
 }
 
+// HandleLog dispatches a single log to the handler registered for its topic0.
+// It returns an error if the log has no topics or no handler is registered.
 func (r *HandlerRegistry) HandleLog(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
 	if len(log.Topics) == 0 {
 		return fmt.Errorf("log has no topics")
