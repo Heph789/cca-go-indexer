@@ -40,6 +40,11 @@ Use the `go-tester` agent to create tests before any implementation. This agent 
 
 Use a subagent to implement the issue such that the tests pass. This subagent should implement test by test, committing at each step.
 
+**Commenting standards:**
+- Every exported function and method gets a Go doc comment explaining what it does, its parameters, and its return values.
+- Every package gets a doc comment in `doc.go` (or at the top of the primary file) explaining the package's purpose and how it fits into the system.
+- Non-obvious internal logic gets inline comments explaining *why*, not *what*.
+
 ### 5. Simplify
 
 Use the simplifier agent to clean up the code. Watch especially for dead code.
