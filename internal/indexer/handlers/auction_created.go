@@ -66,6 +66,9 @@ func mustABIType(t string) abi.Type {
 }
 
 func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
+	if len(log.Topics) < 3 {
+		return fmt.Errorf("expected 3 topics, got %d", len(log.Topics))
+	}
 	auctionAddr := common.BytesToAddress(log.Topics[1].Bytes())
 	tokenAddr := common.BytesToAddress(log.Topics[2].Bytes())
 
