@@ -86,9 +86,12 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 	for i, t := range log.Topics {
 		topicStrs[i] = t.Hex()
 	}
-	topicsJSON, _ := json.Marshal(topicStrs)
+	topicsJSON, err := json.Marshal(topicStrs)
+	if err != nil {
+		return fmt.Errorf("marshal topics: %w", err)
+	}
 
-	decoded := map[string]interface{}{
+	decoded := map[string]any{
 		"auctionAddress":         auctionAddr.Hex(),
 		"token":                  tokenAddr.Hex(),
 		"amount":                 amount.String(),
@@ -103,7 +106,10 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 		"floorPrice":             floorPrice.String(),
 		"requiredCurrencyRaised": requiredCurrencyRaised.String(),
 	}
-	decodedJSON, _ := json.Marshal(decoded)
+	decodedJSON, err := json.Marshal(decoded)
+	if err != nil {
+		return fmt.Errorf("marshal decoded data: %w", err)
+	}
 
 	rawEvent := &cca.RawEvent{
 		ChainID:     chainID,
