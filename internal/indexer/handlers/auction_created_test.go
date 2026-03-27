@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -225,6 +226,9 @@ func TestHandle_DecodesConfigData(t *testing.T) {
 	}
 	if a.RequiredCurrencyRaised.Cmp(fix.params.RequiredCurrencyRaised) != 0 {
 		t.Errorf("RequiredCurrencyRaised = %s, want %s", a.RequiredCurrencyRaised.String(), fix.params.RequiredCurrencyRaised.String())
+	}
+	if !bytes.Equal(a.AuctionStepsData, fix.params.AuctionStepsData) {
+		t.Errorf("AuctionStepsData = %x, want %x", a.AuctionStepsData, fix.params.AuctionStepsData)
 	}
 }
 
