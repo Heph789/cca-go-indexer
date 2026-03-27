@@ -81,6 +81,7 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 	validationHook := paramVals[7].(common.Address)
 	floorPrice := paramVals[8].(*big.Int)
 	requiredCurrencyRaised := paramVals[9].(*big.Int)
+	auctionStepsData := paramVals[10].([]byte)
 
 	topicStrs := make([]string, len(log.Topics))
 	for i, t := range log.Topics {
@@ -105,6 +106,7 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 		"validationHook":         validationHook.Hex(),
 		"floorPrice":             floorPrice.String(),
 		"requiredCurrencyRaised": requiredCurrencyRaised.String(),
+		"auctionStepsData":       "0x" + hex.EncodeToString(auctionStepsData),
 	}
 	decodedJSON, err := json.Marshal(decoded)
 	if err != nil {
@@ -141,6 +143,7 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 		ValidationHook:         validationHook,
 		FloorPrice:             floorPrice,
 		RequiredCurrencyRaised: requiredCurrencyRaised,
+		AuctionStepsData:       auctionStepsData,
 		ChainID:                chainID,
 		BlockNumber:            log.BlockNumber,
 		TxHash:                 log.TxHash,
