@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -301,6 +302,25 @@ func TestHandle_InsertsTypedAuction(t *testing.T) {
 	}
 	if a.Amount.Cmp(fix.amount) != 0 {
 		t.Errorf("Amount = %s, want %s", a.Amount.String(), fix.amount.String())
+	}
+}
+
+func TestHandle_ReturnsErrorOnTooFewTopics(t *testing.T) {
+	s := newMockStore()
+	h := &AuctionCreatedHandler{}
+
+	logEntry := types.Log{
+		Address: common.HexToAddress("0xFactoryFactoryFactoryFactory0000"),
+		Topics:  []common.Hash{ethabi.AuctionCreatedEventID},
+		Data:    []byte{},
+	}
+
+	err := h.Handle(context.Background(), 324, logEntry, s)
+	if err == nil {
+		t.Fatal("expected error for too few topics, got nil")
+	}
+	if got := err.Error(); !strings.Contains(got, "expected 3 topics") {
+		t.Errorf("error = %q, want it to contain %q", got, "expected 3 topics")
 	}
 }
 
