@@ -118,11 +118,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.HeaderConcurrency != 1 {
 		t.Errorf("HeaderConcurrency = %d, want 1", cfg.HeaderConcurrency)
 	}
-	if cfg.RetryMaxRetries != 5 {
-		t.Errorf("RetryMaxRetries = %d, want 5", cfg.RetryMaxRetries)
+	if cfg.Retry.MaxRetries != 5 {
+		t.Errorf("RetryMaxRetries = %d, want 5", cfg.Retry.MaxRetries)
 	}
-	if cfg.RetryBaseDelay != 500*time.Millisecond {
-		t.Errorf("RetryBaseDelay = %v, want %v", cfg.RetryBaseDelay, 500*time.Millisecond)
+	if cfg.Retry.BaseDelay != 500*time.Millisecond {
+		t.Errorf("RetryBaseDelay = %v, want %v", cfg.Retry.BaseDelay, 500*time.Millisecond)
 	}
 }
 
@@ -202,11 +202,11 @@ func TestLoad_ParsesRetryConfig(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if cfg.RetryMaxRetries != 10 {
-		t.Errorf("RetryMaxRetries = %d, want 10", cfg.RetryMaxRetries)
+	if cfg.Retry.MaxRetries != 10 {
+		t.Errorf("RetryMaxRetries = %d, want 10", cfg.Retry.MaxRetries)
 	}
-	if cfg.RetryBaseDelay != 1*time.Second {
-		t.Errorf("RetryBaseDelay = %v, want %v", cfg.RetryBaseDelay, 1*time.Second)
+	if cfg.Retry.BaseDelay != 1*time.Second {
+		t.Errorf("RetryBaseDelay = %v, want %v", cfg.Retry.BaseDelay, 1*time.Second)
 	}
 }
 
