@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/cca/go-indexer/internal/eth"
 )
 
 type Config struct {
@@ -24,6 +26,7 @@ type Config struct {
 	BlockBatchSize    uint64
 	Confirmations     uint64
 	HeaderConcurrency int
+	Retry             eth.RetryConfig
 }
 
 func loadBase() (*Config, error) {
@@ -51,12 +54,11 @@ func loadBase() (*Config, error) {
 	cfg.RPCURL = os.Getenv("RPC_URL")
 	cfg.FactoryAddr = os.Getenv("FACTORY_ADDRESS")
 
-	pollStr := envOrDefault("POLL_INTERVAL", "12s")
-	poll, err := time.ParseDuration(pollStr)
+	var err error
+	cfg.PollInterval, err = parseDurationEnv("POLL_INTERVAL", "12s")
 	if err != nil {
-		return nil, fmt.Errorf("parsing POLL_INTERVAL: %w", err)
+		return nil, err
 	}
-	cfg.PollInterval = poll
 
 	cfg.BlockBatchSize, err = parseUint64Env("BLOCK_BATCH_SIZE", 100)
 	if err != nil {
@@ -73,11 +75,20 @@ func loadBase() (*Config, error) {
 		return nil, err
 	}
 
-	hc, err := parseUint64Env("HEADER_CONCURRENCY", 1)
+	cfg.HeaderConcurrency, err = parseIntEnv("HEADER_CONCURRENCY", 1)
 	if err != nil {
 		return nil, err
 	}
-	cfg.HeaderConcurrency = int(hc)
+
+	cfg.Retry.MaxRetries, err = parseIntEnv("RETRY_MAX_RETRIES", 5)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg.Retry.BaseDelay, err = parseDurationEnv("RETRY_BASE_DELAY", "500ms")
+	if err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
 }
@@ -125,6 +136,27 @@ func envOrDefault(key, defaultVal string) string {
 		return v
 	}
 	return defaultVal
+}
+
+func parseIntEnv(key string, defaultVal int) (int, error) {
+	s := os.Getenv(key)
+	if s == "" {
+		return defaultVal, nil
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, fmt.Errorf("parsing %s: %w", key, err)
+	}
+	return v, nil
+}
+
+func parseDurationEnv(key, defaultVal string) (time.Duration, error) {
+	s := envOrDefault(key, defaultVal)
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("parsing %s: %w", key, err)
+	}
+	return d, nil
 }
 
 func parseUint64Env(key string, defaultVal uint64) (uint64, error) {

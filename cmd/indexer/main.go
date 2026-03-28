@@ -36,7 +36,7 @@ func main() {
 	}
 	defer st.Close()
 
-	ethClient, err := eth.NewClient(cfg.RPCURL)
+	ethClient, err := eth.NewClient(cfg.RPCURL, cfg.Retry)
 	if err != nil {
 		logger.Error("connecting to rpc", "error", err)
 		os.Exit(1)
