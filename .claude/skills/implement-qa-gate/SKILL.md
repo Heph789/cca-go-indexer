@@ -24,6 +24,10 @@ Read the QA gate issue carefully. Extract:
 
 Also read the implementation issues for this phase to understand what was actually built.
 
+**Identify the key branches:**
+- **Current gate branch** — where you write tests. This is stacked on the last implementation issue's branch in the chain, so it has ALL code from this phase and prior phases.
+- **Red phase branch** — the previous QA gate's branch (or the scaffold/parent branch for gate 1). This has code from prior phases but NOT this phase's implementation. This is where tests must fail.
+
 ### 2. Design
 
 Before writing any code, produce a **test plan** and present it to the user for confirmation. The plan should include:
@@ -53,19 +57,25 @@ For each experiment, describe what you expect to happen when run against the pre
 
 Build the test harness and write all experiments (required + agent-designed).
 
+- All automated tests are **end-to-end tests** — they exercise the system through its public interfaces, not internal units
+- All test files live in the `simulate/` directory
 - Use shared test infrastructure where it exists; create new helpers as needed
 - Comment each experiment thoroughly — a reviewer should understand what's being verified and why without reading the implementation
 - Commit incrementally: infrastructure first, then experiments in logical groups
 
 ### 4. Red Phase — Verify Against Previous Gate
 
-Check out the previous QA gate's branch (or scaffold/parent branch for gate 1):
+The red phase proves the tests are meaningful by confirming they fail when this phase's code doesn't exist.
+
+The test files live on the current gate branch but need to run against the previous gate's code. Stash your uncommitted test work, check out the red phase branch, and pop:
 
 ```bash
 git stash
-git checkout <previous-gate-branch>
-git stash pop  # bring test files forward
+git checkout <red-phase-branch>
+git stash pop
 ```
+
+This works because all QA test files live in `simulate/`, which exists at every branch in the stack.
 
 Run the experiments. **They must fail.**
 
