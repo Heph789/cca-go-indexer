@@ -24,10 +24,29 @@ type pgStore struct {
 	tx   pgx.Tx
 }
 
+// idleInTxTimeout is the per-connection idle_in_transaction_session_timeout.
+// Postgres will terminate any session that sits idle inside an open transaction
+// for longer than this duration, preventing long-running idle transactions from
+// holding locks and blocking other operations.
+const idleInTxTimeout = "30s"
+
+// New creates a Postgres-backed store.Store. Every connection in the pool is
+// configured with idle_in_transaction_session_timeout via an AfterConnect
+// callback so the setting applies even to newly created connections.
 func New(ctx context.Context, databaseURL string) (store.Store, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+	poolCfg, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("pgxpool.New: %w", err)
+		return nil, fmt.Errorf("pgxpool.ParseConfig: %w", err)
+	}
+
+	poolCfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		_, err := conn.Exec(ctx, "SET idle_in_transaction_session_timeout = '"+idleInTxTimeout+"'")
+		return err
+	}
+
+	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
+	if err != nil {
+		return nil, fmt.Errorf("pgxpool.NewWithConfig: %w", err)
 	}
 
 	if err := pool.Ping(ctx); err != nil {
