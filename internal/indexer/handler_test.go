@@ -1,8 +1,10 @@
 package indexer
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -44,6 +46,121 @@ func TestHandlerRegistry_TopicFilterReturnsAllEventIDs(t *testing.T) {
 	}
 	if !found[idB] {
 		t.Error("expected idB in topic filter")
+	}
+}
+
+// TestHandleLog_SentinelErrors verifies that HandleLog returns the correct
+// sentinel errors (or nil) for edge-case log inputs. This uses errors.Is to
+// confirm that callers can programmatically match on specific error values
+// rather than relying on fragile string comparisons.
+func TestHandleLog_SentinelErrors(t *testing.T) {
+	// registeredID is a topic with a handler in the registry.
+	registeredID := common.HexToHash("0xaaaa")
+	// unregisteredID is a topic with no corresponding handler.
+	unregisteredID := common.HexToHash("0xcccc")
+
+	handler := &mockHandler{eventName: "EventA", eventID: registeredID}
+	registry := NewRegistry(noopLogger(), handler)
+	s := newMockStore()
+
+	tests := []struct {
+		name string
+		// log is the Ethereum log passed to HandleLog.
+		log types.Log
+		// wantErr is the sentinel error we expect, or nil for success.
+		wantErr error
+	}{
+		// --- error cases ---
+
+		// A log with an empty topics slice is malformed and must return
+		// ErrNoTopics so callers can distinguish this from other errors.
+		{
+			name:    "returns ErrNoTopics when log has empty topics slice",
+			log:     types.Log{Topics: []common.Hash{}},
+			wantErr: ErrNoTopics,
+		},
+
+		// A log with a nil topics slice should behave the same as empty.
+		{
+			name:    "returns ErrNoTopics when log has nil topics",
+			log:     types.Log{Topics: nil},
+			wantErr: ErrNoTopics,
+		},
+
+		// --- success cases ---
+
+		// An unregistered topic is silently skipped (logged as warning)
+		// and should not return an error. This confirms the registry
+		// does not treat unknown topics as failures.
+		{
+			name:    "returns nil for unregistered topic",
+			log:     types.Log{Topics: []common.Hash{unregisteredID}},
+			wantErr: nil,
+		},
+
+		// A registered topic should dispatch successfully and return nil.
+		{
+			name:    "returns nil for registered topic",
+			log:     types.Log{Topics: []common.Hash{registeredID}},
+			wantErr: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := registry.HandleLog(context.Background(), 1, tt.log, s)
+
+			if tt.wantErr != nil {
+				// Verify the error matches the expected sentinel using errors.Is,
+				// which is the whole point of introducing structured errors.
+				if !errors.Is(err, tt.wantErr) {
+					t.Errorf("expected error matching %v, got: %v", tt.wantErr, err)
+				}
+			} else {
+				if err != nil {
+					t.Errorf("expected no error, got: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// TestErrNoTopics_IsExported verifies that the ErrNoTopics sentinel is an
+// exported package-level variable. This test will fail to compile if the
+// sentinel does not exist, serving as a compile-time check for the API contract.
+func TestErrNoTopics_IsExported(t *testing.T) {
+	// wantType ensures ErrNoTopics satisfies the error interface.
+	var wantType error = ErrNoTopics
+	if wantType == nil {
+		t.Fatal("ErrNoTopics must not be nil")
+	}
+}
+
+func TestHandleLog_LogsWarningForUnregisteredTopic(t *testing.T) {
+	idA := common.HexToHash("0xaaaa")
+	handlerA := &mockHandler{eventName: "EventA", eventID: idA}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	registry := NewRegistry(logger, handlerA)
+
+	unknownID := common.HexToHash("0xcccc")
+	log := types.Log{
+		Topics: []common.Hash{unknownID},
+	}
+
+	s := newMockStore()
+	err := registry.HandleLog(context.Background(), 1, log, s)
+	if err != nil {
+		t.Fatalf("expected no error for unregistered topic, got: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "WARN") {
+		t.Errorf("expected log output to contain WARN level, got: %s", output)
+	}
+	if !strings.Contains(output, unknownID.Hex()) {
+		t.Errorf("expected log output to contain unregistered topic hex %s, got: %s", unknownID.Hex(), output)
 	}
 }
 
