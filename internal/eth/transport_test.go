@@ -249,7 +249,7 @@ func TestRetryTransport_JitterWithinExpectedBounds(t *testing.T) {
 		// For retry 0: full delay = baseDelay * 2^0 = baseDelay
 		// Jitter bounds: 0.5 * baseDelay to 1.0 * baseDelay
 		minDelay := time.Duration(float64(baseDelay) * 0.4) // slightly below 0.5x for timing tolerance
-		maxDelay := time.Duration(float64(baseDelay) * 1.2)  // slightly above 1.0x for timing tolerance
+		maxDelay := time.Duration(float64(baseDelay) * 1.2) // slightly above 1.0x for timing tolerance
 		if gap < minDelay || gap > maxDelay {
 			t.Errorf("iteration %d: delay %v outside expected jitter bounds [%v, %v]", i, gap, minDelay, maxDelay)
 		}

@@ -42,7 +42,7 @@ type mockStore struct {
 	PingFn      func(ctx context.Context) error
 }
 
-func (m *mockStore) AuctionRepo() store.AuctionRepository  { return m.auctionRepo }
+func (m *mockStore) AuctionRepo() store.AuctionRepository   { return m.auctionRepo }
 func (m *mockStore) RawEventRepo() store.RawEventRepository { return nil }
 func (m *mockStore) CursorRepo() store.CursorRepository     { return nil }
 func (m *mockStore) BlockRepo() store.BlockRepository       { return nil }
@@ -299,4 +299,3 @@ func TestToAuctionResponse(t *testing.T) {
 		}
 	})
 }
-

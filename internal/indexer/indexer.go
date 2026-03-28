@@ -18,13 +18,13 @@ import (
 
 // IndexerConfig holds the parameters that control a ChainIndexer's polling behavior.
 type IndexerConfig struct {
-	ChainID            int64
-	StartBlock         uint64
-	PollInterval       time.Duration
-	BlockBatchSize     uint64
-	Confirmations      uint64
-	HeaderConcurrency  int
-	Addresses          []common.Address
+	ChainID           int64
+	StartBlock        uint64
+	PollInterval      time.Duration
+	BlockBatchSize    uint64
+	Confirmations     uint64
+	HeaderConcurrency int
+	Addresses         []common.Address
 }
 
 const maxLoopRetries = 5

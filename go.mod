@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/ethereum/go-ethereum v1.14.12
 	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/google/go-cmp v0.5.8
 	github.com/jackc/pgx/v5 v5.9.1
 	golang.org/x/sync v0.18.0
 )

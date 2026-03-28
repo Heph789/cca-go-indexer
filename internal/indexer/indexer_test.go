@@ -393,8 +393,8 @@ func TestIndexer_SleepsWhenChainHeadBelowConfirmations(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 0, "", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 0, common.Hash{}, nil
 	}
 
 	// Chain head is 5 but confirmations require 10 — would underflow
@@ -411,7 +411,7 @@ func TestIndexer_SleepsWhenChainHeadBelowConfirmations(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	registry := NewRegistry()
+	registry := NewRegistry(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
 		ChainID:       1,
 		StartBlock:    1,

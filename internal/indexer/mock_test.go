@@ -68,7 +68,7 @@ func newMockStore() *mockStore {
 	}
 }
 
-func (m *mockStore) AuctionRepo() store.AuctionRepository  { return m.auctionRepo }
+func (m *mockStore) AuctionRepo() store.AuctionRepository   { return m.auctionRepo }
 func (m *mockStore) RawEventRepo() store.RawEventRepository { return m.rawEventRepo }
 func (m *mockStore) CursorRepo() store.CursorRepository     { return m.cursorRepo }
 func (m *mockStore) BlockRepo() store.BlockRepository       { return m.blockRepo }
@@ -98,9 +98,9 @@ func (m *mockStore) Close() {
 // --- mockAuctionRepo ---
 
 type mockAuctionRepo struct {
-	InsertFn         func(ctx context.Context, auction *cca.Auction) error
+	InsertFn          func(ctx context.Context, auction *cca.Auction) error
 	DeleteFromBlockFn func(ctx context.Context, chainID int64, fromBlock uint64) error
-	GetByAddressFn   func(ctx context.Context, chainID int64, auctionAddress string) (*cca.Auction, error)
+	GetByAddressFn    func(ctx context.Context, chainID int64, auctionAddress string) (*cca.Auction, error)
 }
 
 func (m *mockAuctionRepo) Insert(ctx context.Context, auction *cca.Auction) error {
@@ -127,7 +127,7 @@ func (m *mockAuctionRepo) GetByAddress(ctx context.Context, chainID int64, aucti
 // --- mockRawEventRepo ---
 
 type mockRawEventRepo struct {
-	InsertFn         func(ctx context.Context, event *cca.RawEvent) error
+	InsertFn          func(ctx context.Context, event *cca.RawEvent) error
 	DeleteFromBlockFn func(ctx context.Context, chainID int64, fromBlock uint64) error
 }
 
@@ -169,8 +169,8 @@ func (m *mockCursorRepo) Upsert(ctx context.Context, chainID int64, blockNumber 
 // --- mockBlockRepo ---
 
 type mockBlockRepo struct {
-	InsertFn    func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error
-	GetHashFn   func(ctx context.Context, chainID int64, blockNumber uint64) (common.Hash, error)
+	InsertFn     func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error
+	GetHashFn    func(ctx context.Context, chainID int64, blockNumber uint64) (common.Hash, error)
 	DeleteFromFn func(ctx context.Context, chainID int64, fromBlock uint64) error
 }
 

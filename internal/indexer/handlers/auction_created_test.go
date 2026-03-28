@@ -113,7 +113,7 @@ func defaultFixture() testFixture {
 func (f testFixture) buildLog(t *testing.T) types.Log {
 	t.Helper()
 	return types.Log{
-		Address:     common.HexToAddress("0xFactoryFactoryFactoryFactory0000"),
+		Address: common.HexToAddress("0xFactoryFactoryFactoryFactory0000"),
 		Topics: []common.Hash{
 			ethabi.AuctionCreatedEventID,
 			common.BytesToHash(f.auctionAddr.Bytes()),

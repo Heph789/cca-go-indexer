@@ -108,6 +108,7 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 	validationHook := params.ValidationHook
 	floorPrice := params.FloorPrice
 	requiredCurrencyRaised := params.RequiredCurrencyRaised
+	auctionStepsData := params.AuctionStepsData
 
 	topicStrs := make([]string, len(log.Topics))
 	for i, t := range log.Topics {

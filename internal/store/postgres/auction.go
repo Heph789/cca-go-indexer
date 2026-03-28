@@ -68,7 +68,7 @@ func (r *auctionRepo) GetByAddress(ctx context.Context, chainID int64, auctionAd
 		auctionAddr, token, currency, tokensRecipient, fundsRecipient string
 		validationHook, txHash                                        string
 		amountStr, tickSpacingStr, floorPriceStr, reqCurrRaisedStr    string
-		startBlock, endBlock, claimBlock, blockNumber                  uint64
+		startBlock, endBlock, claimBlock, blockNumber                 uint64
 		logIndex                                                      uint
 		chainIDVal                                                    int64
 	)
