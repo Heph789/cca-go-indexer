@@ -26,6 +26,8 @@ type IndexerConfig struct {
 	Addresses          []common.Address
 }
 
+const maxLoopRetries = 5
+
 type blockHeader struct {
 	hash       common.Hash
 	parentHash common.Hash
@@ -49,6 +51,22 @@ func New(ethClient eth.Client, s store.Store, registry *HandlerRegistry, config 
 	}
 }
 
+func (idx *ChainIndexer) handleLoopError(consecutiveErrors *int, operation string, err error) bool {
+	*consecutiveErrors++
+	exhausted := *consecutiveErrors >= maxLoopRetries
+	msg := "transient error, will retry"
+	if exhausted {
+		msg = "retry budget exhausted"
+	}
+	idx.logger.Error(msg,
+		"operation", operation,
+		"error", err,
+		"attempt", *consecutiveErrors,
+		"max_retries", maxLoopRetries,
+	)
+	return exhausted
+}
+
 func (idx *ChainIndexer) Run(ctx context.Context) error {
 	cursor, _, err := idx.store.CursorRepo().Get(ctx, idx.config.ChainID)
 	if err != nil {
@@ -59,6 +77,8 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 		cursor = idx.config.StartBlock - 1
 	}
 
+	consecutiveErrors := 0
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -68,7 +88,24 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 
 		chainHead, err := idx.ethClient.BlockNumber(ctx)
 		if err != nil {
-			return fmt.Errorf("getting chain head: %w", err)
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "get block number", err); shouldExit {
+				return fmt.Errorf("getting chain head (after %d retries): %w", maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
+		}
+
+		if chainHead < idx.config.Confirmations {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
 		}
 
 		safeHead := chainHead - idx.config.Confirmations
@@ -91,7 +128,15 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			Topics:    idx.registry.TopicFilter(),
 		})
 		if err != nil {
-			return fmt.Errorf("filtering logs: %w", err)
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "filter logs", err); shouldExit {
+				return fmt.Errorf("filtering logs (after %d retries): %w", maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
 		}
 
 		concurrency := idx.config.HeaderConcurrency
@@ -119,7 +164,15 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 		}
 
 		if err := g.Wait(); err != nil {
-			return fmt.Errorf("fetching headers: %w", err)
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "fetch headers", err); shouldExit {
+				return fmt.Errorf("fetching headers (after %d retries): %w", maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
 		}
 
 		lastBlockHash := headers[to-from].hash
@@ -145,9 +198,18 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			return nil
 		})
 		if err != nil {
-			return fmt.Errorf("executing batch tx: %w", err)
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "execute batch tx", err); shouldExit {
+				return fmt.Errorf("executing batch tx (after %d retries): %w", maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
 		}
 
 		cursor = to
+		consecutiveErrors = 0
 	}
 }
