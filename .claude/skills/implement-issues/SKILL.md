@@ -20,40 +20,62 @@ Before starting work on an issue, check its state using `gh`:
 - **Has an open or draft PR:** Skip it, move to the next issue.
 - **Labeled `question`:** Stop the entire process and wait for further instruction from the user.
 
-### 1. Branch
+### 1. Mark In-Progress
+
+Add the `in-progress` label to the issue:
+
+```bash
+gh issue edit <ISSUE_NUMBER> --add-label "in-progress"
+```
+
+### 2. Branch
 
 Checkout a new branch from the previous issue's branch using the naming convention defined by the issue.
 
-### 2. Red Phase — Tests First
+### 3. Red Phase — Tests First
 
-Use a subagent to create tests before any implementation (table-driven development). Create commits along the way and after finishing all tests. Ensure the tests run and fail.
+Use the `go-tester` agent to create tests before any implementation. This agent writes table-driven tests with thorough comments so reviewers can quickly understand what's being tested and why. Create commits along the way and after finishing all tests. Ensure the tests run and fail.
 
-### 3. Green Phase — Implementation
+### 4. Green Phase — Implementation
 
 Use a subagent to implement the issue such that the tests pass. This subagent should implement test by test, committing at each step.
 
-### 4. Simplify
+**Commenting standards:**
+- Every exported function and method gets a Go doc comment explaining what it does, its parameters, and its return values.
+- Every package gets a doc comment in `doc.go` (or at the top of the primary file) explaining the package's purpose and how it fits into the system.
+- Non-obvious internal logic gets inline comments explaining *why*, not *what*.
+
+### 5. Simplify
 
 Use the simplifier agent to clean up the code. Watch especially for dead code.
 
-### 5. PR
+## Subagent Discipline
 
-Use /create-pr to create a **draft** PR based on the previous issue's branch. Label the PR as `pending review`. After creating the PR, link it to the related issue using the GitHub GraphQL API:
+Steps 3, 4, and 5 MUST be performed by subagents — never in the implementor's own context. If a subagent call fails due to an API error or transient failure, retry the subagent call. Do NOT fall back to doing the work inline.
+
+### 6. PR
+
+Remove the `in-progress` label from the issue:
 
 ```bash
-# Get the PR node ID
-PR_ID=$(gh pr view <PR_NUMBER> --json id -q .id)
-# Get the issue node ID
-ISSUE_ID=$(gh issue view <ISSUE_NUMBER> --json id -q .id)
-# Link the PR to the issue
-gh api graphql -f query='mutation {
-  updatePullRequest(input: {pullRequestId: "'"$PR_ID"'", closingIssueIds: ["'"$ISSUE_ID"'"]}) {
-    pullRequest { id }
-  }
-}'
+gh issue edit <ISSUE_NUMBER> --remove-label "in-progress"
 ```
 
-### 6. Next
+Use /create-pr to create a **draft** PR based on the previous issue's branch. Label the PR as `pending review`.
+
+**Link the PR to the issue.** Because stacked PRs merge into other feature branches (not `main`), GitHub's `Closes #N` keyword will NOT auto-close issues. Instead:
+
+1. **PR body reference.** The PR body MUST contain `Addresses #<ISSUE_NUMBER>` so the PR and issue are cross-referenced in GitHub's UI.
+
+2. **Close the issue explicitly** after the PR is merged:
+
+```bash
+gh issue close <ISSUE_NUMBER> --repo <OWNER/REPO>
+```
+
+Do NOT close the issue when creating the draft PR — only after it is merged.
+
+### 7. Next
 
 Move on to the next sub-issue.
 
