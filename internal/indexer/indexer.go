@@ -53,13 +53,23 @@ func New(ethClient eth.Client, s store.Store, registry *HandlerRegistry, config 
 
 func (idx *ChainIndexer) handleLoopError(consecutiveErrors *int, operation string, err error) bool {
 	*consecutiveErrors++
-	idx.logger.Error("transient error, will retry",
-		"operation", operation,
-		"error", err,
-		"attempt", *consecutiveErrors,
-		"max_retries", maxLoopRetries,
-	)
-	return *consecutiveErrors >= maxLoopRetries
+	exhausted := *consecutiveErrors >= maxLoopRetries
+	if exhausted {
+		idx.logger.Error("retry budget exhausted",
+			"operation", operation,
+			"error", err,
+			"attempt", *consecutiveErrors,
+			"max_retries", maxLoopRetries,
+		)
+	} else {
+		idx.logger.Error("transient error, will retry",
+			"operation", operation,
+			"error", err,
+			"attempt", *consecutiveErrors,
+			"max_retries", maxLoopRetries,
+		)
+	}
+	return exhausted
 }
 
 func (idx *ChainIndexer) Run(ctx context.Context) error {
