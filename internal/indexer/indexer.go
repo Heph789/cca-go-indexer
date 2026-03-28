@@ -10,17 +10,25 @@ import (
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/cca/go-indexer/internal/eth"
 	"github.com/cca/go-indexer/internal/store"
 )
 
 type IndexerConfig struct {
-	ChainID        int64
-	StartBlock     uint64
-	PollInterval   time.Duration
-	BlockBatchSize uint64
-	Confirmations  uint64
-	Addresses      []common.Address
+	ChainID            int64
+	StartBlock         uint64
+	PollInterval       time.Duration
+	BlockBatchSize     uint64
+	Confirmations      uint64
+	HeaderConcurrency  int
+	Addresses          []common.Address
+}
+
+type blockHeader struct {
+	hash       string
+	parentHash string
 }
 
 type ChainIndexer struct {
@@ -86,18 +94,35 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			return fmt.Errorf("filtering logs: %w", err)
 		}
 
-		headers := make(map[uint64]struct{ hash, parentHash string })
-		for block := from; block <= to; block++ {
-			header, err := idx.ethClient.HeaderByNumber(ctx, new(big.Int).SetUint64(block))
-			if err != nil {
-				return fmt.Errorf("getting header for block %d: %w", block, err)
-			}
-			blockHash := header.Hash().Hex()
-			parentHash := header.ParentHash.Hex()
-			headers[block] = struct{ hash, parentHash string }{blockHash, parentHash}
+		concurrency := idx.config.HeaderConcurrency
+		if concurrency <= 0 {
+			concurrency = 1
 		}
 
-		lastBlockHash := headers[to].hash
+		headers := make([]blockHeader, to-from+1)
+
+		g, gCtx := errgroup.WithContext(ctx)
+		g.SetLimit(concurrency)
+
+		for block := from; block <= to; block++ {
+			g.Go(func() error {
+				header, err := idx.ethClient.HeaderByNumber(gCtx, new(big.Int).SetUint64(block))
+				if err != nil {
+					return fmt.Errorf("getting header for block %d: %w", block, err)
+				}
+				headers[block-from] = blockHeader{
+					hash:       header.Hash().Hex(),
+					parentHash: header.ParentHash.Hex(),
+				}
+				return nil
+			})
+		}
+
+		if err := g.Wait(); err != nil {
+			return fmt.Errorf("fetching headers: %w", err)
+		}
+
+		lastBlockHash := headers[to-from].hash
 
 		err = idx.store.WithTx(ctx, func(txStore store.Store) error {
 			for _, log := range logs {
@@ -106,8 +131,8 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 				}
 			}
 
-			for block := from; block <= to; block++ {
-				h := headers[block]
+			for i, h := range headers {
+				block := from + uint64(i)
 				if err := txStore.BlockRepo().Insert(ctx, idx.config.ChainID, block, h.hash, h.parentHash); err != nil {
 					return fmt.Errorf("inserting block %d: %w", block, err)
 				}

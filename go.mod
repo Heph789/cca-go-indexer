@@ -6,6 +6,7 @@ require (
 	github.com/ethereum/go-ethereum v1.14.12
 	github.com/golang-migrate/migrate/v4 v4.19.1
 	github.com/jackc/pgx/v5 v5.9.1
+	golang.org/x/sync v0.18.0
 )
 
 require (
@@ -34,7 +35,6 @@ require (
 	github.com/tklauser/numcpus v0.6.1 // indirect
 	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20231110203233-9a3e6036ecaa // indirect
-	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
