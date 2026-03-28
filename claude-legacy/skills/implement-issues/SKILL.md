@@ -57,20 +57,19 @@ Remove the `in-progress` label from the issue:
 gh issue edit <ISSUE_NUMBER> --remove-label "in-progress"
 ```
 
-Use /create-pr to create a **draft** PR based on the previous issue's branch. Label the PR as `pending review`. After creating the PR, link it to the related issue using the GitHub GraphQL API:
+Use /create-pr to create a **draft** PR based on the previous issue's branch. Label the PR as `pending review`.
+
+**Link the PR to the issue.** Because stacked PRs merge into other feature branches (not `main`), GitHub's `Closes #N` keyword will NOT auto-close issues. Instead:
+
+1. **PR body reference.** The PR body MUST contain `Addresses #<ISSUE_NUMBER>` so the PR and issue are cross-referenced in GitHub's UI.
+
+2. **Close the issue explicitly** after the PR is merged:
 
 ```bash
-# Get the PR node ID
-PR_ID=$(gh pr view <PR_NUMBER> --json id -q .id)
-# Get the issue node ID
-ISSUE_ID=$(gh issue view <ISSUE_NUMBER> --json id -q .id)
-# Link the PR to the issue
-gh api graphql -f query='mutation {
-  updatePullRequest(input: {pullRequestId: "'"$PR_ID"'", closingIssueIds: ["'"$ISSUE_ID"'"]}) {
-    pullRequest { id }
-  }
-}'
+gh issue close <ISSUE_NUMBER> --repo <OWNER/REPO>
 ```
+
+Do NOT close the issue when creating the draft PR — only after it is merged.
 
 ### 7. Next
 
