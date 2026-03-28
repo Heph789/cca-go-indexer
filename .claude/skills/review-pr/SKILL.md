@@ -27,7 +27,17 @@ For every review note, decide: **valid** or **invalid**.
    - Title
    - Description (with references to the original review notes)
    - Which review notes it addresses
-3. **Check later branches in the chain** — list branches that build on the current branch (`git branch --list "<current-branch>-/*"` and any further descendants). For each, check if the issue is already resolved in a later branch's commits or PR. If so, mark the issue as **"already resolved"** with a link to the PR.
+3. **Check later branches in the chain.** In this stacked workflow, "later branches" are NOT branches nested under the current branch name — they are the branches for subsequent issues in the parent issue's sub-issue list.
+
+   To find them:
+   1. From the PR, find the linked issue number.
+   2. Find the parent issue (listed in the issue body as `**Parent issue:** #N`).
+   3. Get the parent's sub-issue list in order.
+   4. Find the current issue's position in that list.
+   5. Every sub-issue **after** it in the list is a "later" issue. Check its branch name (from the issue body's `## Branch name` section).
+   6. For each later branch that exists locally or has a PR, check if the review issue is already resolved in that branch's commits (`git log <current-branch>..<later-branch>`) or PR diff.
+
+   If resolved in a later branch, mark the issue as **"already resolved"** with a link to the PR.
 4. **Decide disposition** for unresolved issues:
    - **Fix in this PR** — if the fix is simple and won't cause refactors/rebases on later branches in the chain.
    - **Create sub-issue** — if the fix belongs to this feature but is complex or would force rebases on later branches in the chain. It will be inserted into the parent issue's queue. Note why.
