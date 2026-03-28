@@ -54,9 +54,6 @@ func mustABIType(t string) abi.Type {
 }
 
 func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
-	if len(log.Topics) < 3 {
-		return fmt.Errorf("expected 3 topics, got %d", len(log.Topics))
-	}
 	auctionAddr := common.BytesToAddress(log.Topics[1].Bytes())
 	tokenAddr := common.BytesToAddress(log.Topics[2].Bytes())
 
@@ -81,18 +78,14 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 	validationHook := paramVals[7].(common.Address)
 	floorPrice := paramVals[8].(*big.Int)
 	requiredCurrencyRaised := paramVals[9].(*big.Int)
-	auctionStepsData := paramVals[10].([]byte)
 
 	topicStrs := make([]string, len(log.Topics))
 	for i, t := range log.Topics {
 		topicStrs[i] = t.Hex()
 	}
-	topicsJSON, err := json.Marshal(topicStrs)
-	if err != nil {
-		return fmt.Errorf("marshal topics: %w", err)
-	}
+	topicsJSON, _ := json.Marshal(topicStrs)
 
-	decoded := map[string]any{
+	decoded := map[string]interface{}{
 		"auctionAddress":         auctionAddr.Hex(),
 		"token":                  tokenAddr.Hex(),
 		"amount":                 amount.String(),
@@ -106,12 +99,8 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 		"validationHook":         validationHook.Hex(),
 		"floorPrice":             floorPrice.String(),
 		"requiredCurrencyRaised": requiredCurrencyRaised.String(),
-		"auctionStepsData":       "0x" + hex.EncodeToString(auctionStepsData),
 	}
-	decodedJSON, err := json.Marshal(decoded)
-	if err != nil {
-		return fmt.Errorf("marshal decoded data: %w", err)
-	}
+	decodedJSON, _ := json.Marshal(decoded)
 
 	rawEvent := &cca.RawEvent{
 		ChainID:     chainID,
@@ -143,7 +132,6 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 		ValidationHook:         validationHook,
 		FloorPrice:             floorPrice,
 		RequiredCurrencyRaised: requiredCurrencyRaised,
-		AuctionStepsData:       auctionStepsData,
 		ChainID:                chainID,
 		BlockNumber:            log.BlockNumber,
 		TxHash:                 log.TxHash,

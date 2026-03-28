@@ -1,10 +1,9 @@
 package handlers
 
 import (
+	"encoding/hex"
 	"net/http"
 	"strings"
-
-	ethcommon "github.com/ethereum/go-ethereum/common"
 
 	"github.com/cca/go-indexer/internal/api"
 	"github.com/cca/go-indexer/internal/api/httputil"
@@ -61,7 +60,7 @@ func (h *AuctionHandler) Get(w http.ResponseWriter, r *http.Request) {
 	log := api.LoggerFromContext(r.Context())
 
 	address := r.PathValue("address")
-	if !ethcommon.IsHexAddress(address) {
+	if !isValidAddress(address) {
 		httputil.WriteError(w, http.StatusBadRequest, httputil.CodeBadRequest, "invalid address")
 		return
 	}
@@ -81,4 +80,15 @@ func (h *AuctionHandler) Get(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, httputil.Response{Data: toAuctionResponse(auction)})
+}
+
+func isValidAddress(s string) bool {
+	if len(s) != 42 {
+		return false
+	}
+	if !strings.HasPrefix(s, "0x") && !strings.HasPrefix(s, "0X") {
+		return false
+	}
+	_, err := hex.DecodeString(s[2:])
+	return err == nil
 }

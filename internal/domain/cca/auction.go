@@ -21,7 +21,6 @@ type Auction struct {
 	ValidationHook         common.Address
 	FloorPrice             *big.Int
 	RequiredCurrencyRaised *big.Int
-	AuctionStepsData       []byte
 	ChainID                int64
 	BlockNumber            uint64
 	TxHash                 common.Hash

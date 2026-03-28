@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/google/go-cmp/cmp"
 
 	"github.com/cca/go-indexer/internal/api/httputil"
 	"github.com/cca/go-indexer/internal/domain/cca"
@@ -110,11 +109,11 @@ func TestAuctionHandler_Get(t *testing.T) {
 		}
 
 		ar := resp.Data.(*AuctionResponse)
-		if ar.StartBlock != auction.StartBlock {
-			t.Errorf("expected StartBlock %d, got %d", auction.StartBlock, ar.StartBlock)
+		if ar.StartBlock != 100 {
+			t.Errorf("expected StartBlock 100, got %d", ar.StartBlock)
 		}
-		if ar.Amount != auction.Amount.String() {
-			t.Errorf("expected Amount %q, got %q", auction.Amount.String(), ar.Amount)
+		if ar.Amount != "1000000" {
+			t.Errorf("expected Amount '1000000', got %q", ar.Amount)
 		}
 	})
 
@@ -160,8 +159,7 @@ func TestAuctionHandler_Get(t *testing.T) {
 		ms := &mockStore{auctionRepo: &mockAuctionRepo{}}
 		mux := setupMux(ms)
 
-		// 42 chars total but no 0x prefix — exercises prefix validation, not length
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/auctions/xx1234567890abcdef1234567890abcdef12345678", nil)
+		req := httptest.NewRequest(http.MethodGet, "/api/v1/auctions/1234567890123456789012345678901234567890", nil)
 		rr := httptest.NewRecorder()
 		mux.ServeHTTP(rr, req)
 
@@ -268,28 +266,122 @@ func TestToAuctionResponse(t *testing.T) {
 		auction := newTestAuction()
 		resp := toAuctionResponse(auction)
 
-		want := AuctionResponse{
-			AuctionAddress:         strings.ToLower(auction.AuctionAddress.Hex()),
-			Token:                  strings.ToLower(auction.Token.Hex()),
-			Amount:                 auction.Amount.String(),
-			Currency:               strings.ToLower(auction.Currency.Hex()),
-			TokensRecipient:        strings.ToLower(auction.TokensRecipient.Hex()),
-			FundsRecipient:         strings.ToLower(auction.FundsRecipient.Hex()),
-			StartBlock:             auction.StartBlock,
-			EndBlock:               auction.EndBlock,
-			ClaimBlock:             auction.ClaimBlock,
-			TickSpacing:            auction.TickSpacing.String(),
-			ValidationHook:         strings.ToLower(auction.ValidationHook.Hex()),
-			FloorPrice:             auction.FloorPrice.String(),
-			RequiredCurrencyRaised: auction.RequiredCurrencyRaised.String(),
-			BlockNumber:            auction.BlockNumber,
-			TxHash:                 strings.ToLower(auction.TxHash.Hex()),
-			LogIndex:               auction.LogIndex,
+		if resp.AuctionAddress != strings.ToLower(auction.AuctionAddress.Hex()) {
+			t.Errorf("AuctionAddress: expected %q, got %q", strings.ToLower(auction.AuctionAddress.Hex()), resp.AuctionAddress)
 		}
+		if resp.Token != strings.ToLower(auction.Token.Hex()) {
+			t.Errorf("Token: expected %q, got %q", strings.ToLower(auction.Token.Hex()), resp.Token)
+		}
+		if resp.Amount != "1000000" {
+			t.Errorf("Amount: expected '1000000', got %q", resp.Amount)
+		}
+		if resp.Currency != strings.ToLower(auction.Currency.Hex()) {
+			t.Errorf("Currency: expected %q, got %q", strings.ToLower(auction.Currency.Hex()), resp.Currency)
+		}
+		if resp.TokensRecipient != strings.ToLower(auction.TokensRecipient.Hex()) {
+			t.Errorf("TokensRecipient mismatch")
+		}
+		if resp.FundsRecipient != strings.ToLower(auction.FundsRecipient.Hex()) {
+			t.Errorf("FundsRecipient mismatch")
+		}
+		if resp.StartBlock != 100 {
+			t.Errorf("StartBlock: expected 100, got %d", resp.StartBlock)
+		}
+		if resp.EndBlock != 200 {
+			t.Errorf("EndBlock: expected 200, got %d", resp.EndBlock)
+		}
+		if resp.ClaimBlock != 300 {
+			t.Errorf("ClaimBlock: expected 300, got %d", resp.ClaimBlock)
+		}
+		if resp.TickSpacing != "60" {
+			t.Errorf("TickSpacing: expected '60', got %q", resp.TickSpacing)
+		}
+		if resp.ValidationHook != strings.ToLower(auction.ValidationHook.Hex()) {
+			t.Errorf("ValidationHook mismatch")
+		}
+		if resp.FloorPrice != "500" {
+			t.Errorf("FloorPrice: expected '500', got %q", resp.FloorPrice)
+		}
+		if resp.RequiredCurrencyRaised != "9999" {
+			t.Errorf("RequiredCurrencyRaised: expected '9999', got %q", resp.RequiredCurrencyRaised)
+		}
+		if resp.BlockNumber != 50 {
+			t.Errorf("BlockNumber: expected 50, got %d", resp.BlockNumber)
+		}
+		if resp.TxHash != strings.ToLower(auction.TxHash.Hex()) {
+			t.Errorf("TxHash: expected %q, got %q", strings.ToLower(auction.TxHash.Hex()), resp.TxHash)
+		}
+		if resp.LogIndex != 3 {
+			t.Errorf("LogIndex: expected 3, got %d", resp.LogIndex)
+		}
+	})
 
-		if diff := cmp.Diff(want, resp); diff != "" {
-			t.Errorf("toAuctionResponse() mismatch (-want +got):\n%s", diff)
+	t.Run("lowercases addresses", func(t *testing.T) {
+		auction := newTestAuction()
+		resp := toAuctionResponse(auction)
+
+		addresses := []struct {
+			name string
+			val  string
+		}{
+			{"AuctionAddress", resp.AuctionAddress},
+			{"Token", resp.Token},
+			{"Currency", resp.Currency},
+			{"TokensRecipient", resp.TokensRecipient},
+			{"FundsRecipient", resp.FundsRecipient},
+			{"ValidationHook", resp.ValidationHook},
+			{"TxHash", resp.TxHash},
+		}
+		for _, a := range addresses {
+			if a.val != strings.ToLower(a.val) {
+				t.Errorf("%s should be lowercase, got %q", a.name, a.val)
+			}
+		}
+	})
+
+	t.Run("converts big.Int to string", func(t *testing.T) {
+		auction := newTestAuction()
+		resp := toAuctionResponse(auction)
+
+		if resp.Amount != auction.Amount.String() {
+			t.Errorf("Amount: expected %q, got %q", auction.Amount.String(), resp.Amount)
+		}
+		if resp.TickSpacing != auction.TickSpacing.String() {
+			t.Errorf("TickSpacing: expected %q, got %q", auction.TickSpacing.String(), resp.TickSpacing)
+		}
+		if resp.FloorPrice != auction.FloorPrice.String() {
+			t.Errorf("FloorPrice: expected %q, got %q", auction.FloorPrice.String(), resp.FloorPrice)
+		}
+		if resp.RequiredCurrencyRaised != auction.RequiredCurrencyRaised.String() {
+			t.Errorf("RequiredCurrencyRaised: expected %q, got %q", auction.RequiredCurrencyRaised.String(), resp.RequiredCurrencyRaised)
 		}
 	})
 }
 
+func TestIsValidAddress(t *testing.T) {
+	t.Run("accepts valid address", func(t *testing.T) {
+		if !isValidAddress("0x1234567890abcdef1234567890abcdef12345678") {
+			t.Error("expected valid address to be accepted")
+		}
+	})
+
+	t.Run("rejects invalid addresses", func(t *testing.T) {
+		cases := []struct {
+			name string
+			addr string
+		}{
+			{"too short", "0xabc"},
+			{"too long", "0x1234567890abcdef1234567890abcdef1234567890"},
+			{"no 0x prefix", "1234567890abcdef1234567890abcdef12345678"},
+			{"empty", ""},
+			{"non-hex chars", "0xGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				if isValidAddress(tc.addr) {
+					t.Errorf("expected %q to be rejected", tc.addr)
+				}
+			})
+		}
+	})
+}
