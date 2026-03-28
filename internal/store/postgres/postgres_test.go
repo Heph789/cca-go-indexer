@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/cca/go-indexer/internal/store"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func testStore(t *testing.T) store.Store {
@@ -181,6 +182,85 @@ func TestWithTx_CommitsOnNilReturn(t *testing.T) {
 
 	// Clean up.
 	_, _ = ps.pool.Exec(ctx, "DELETE FROM indexer_cursors WHERE chain_id = 998")
+}
+
+// TestNew_SetsIdleInTransactionSessionTimeout verifies that postgres.New
+// configures an AfterConnect callback on the pgxpool that sets
+// idle_in_transaction_session_timeout = '30s' on every connection. This
+// prevents long-running idle transactions from holding locks indefinitely.
+//
+// The test acquires a connection from the pool and uses SHOW to read back
+// the session-level setting, comparing it to the expected value.
+func TestNew_SetsIdleInTransactionSessionTimeout(t *testing.T) {
+	s := testStore(t)
+	ps := s.(*pgStore)
+	ctx := context.Background()
+
+	// wantTimeout is the value we expect idle_in_transaction_session_timeout
+	// to be set to by the AfterConnect callback. Postgres reports this as "30s".
+	wantTimeout := "30s"
+
+	conn, err := ps.pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("Acquire connection: %v", err)
+	}
+	defer conn.Release()
+
+	// Query the session-level setting to confirm AfterConnect applied it.
+	var got string
+	err = conn.QueryRow(ctx, "SHOW idle_in_transaction_session_timeout").Scan(&got)
+	if err != nil {
+		t.Fatalf("SHOW idle_in_transaction_session_timeout: %v", err)
+	}
+
+	if got != wantTimeout {
+		t.Errorf("idle_in_transaction_session_timeout = %q, want %q", got, wantTimeout)
+	}
+}
+
+// TestNew_IdleInTransactionTimeout_ConsistentAcrossConnections verifies that
+// every connection obtained from the pool has the timeout set, not just the
+// first one. This catches bugs where the AfterConnect callback is missing and
+// only an initial Exec was used.
+func TestNew_IdleInTransactionTimeout_ConsistentAcrossConnections(t *testing.T) {
+	s := testStore(t)
+	ps := s.(*pgStore)
+	ctx := context.Background()
+
+	// wantTimeout is the expected value for every pooled connection.
+	wantTimeout := "30s"
+
+	// numConns is the number of distinct connections to check. We acquire
+	// multiple connections simultaneously to force the pool to create new ones.
+	numConns := 3
+
+	conns := make([]*pgxpool.Conn, 0, numConns)
+	defer func() {
+		for _, c := range conns {
+			c.Release()
+		}
+	}()
+
+	// Acquire several connections at once so the pool must open new ones.
+	for i := range numConns {
+		c, err := ps.pool.Acquire(ctx)
+		if err != nil {
+			t.Fatalf("Acquire connection %d: %v", i, err)
+		}
+		conns = append(conns, c)
+	}
+
+	// Verify each connection has the timeout set.
+	for i, c := range conns {
+		var got string
+		err := c.QueryRow(ctx, "SHOW idle_in_transaction_session_timeout").Scan(&got)
+		if err != nil {
+			t.Fatalf("SHOW on connection %d: %v", i, err)
+		}
+		if got != wantTimeout {
+			t.Errorf("connection %d: idle_in_transaction_session_timeout = %q, want %q", i, got, wantTimeout)
+		}
+	}
 }
 
 func TestClose_ReleasesPool(t *testing.T) {
