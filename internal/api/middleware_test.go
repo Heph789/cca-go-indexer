@@ -19,34 +19,49 @@ import (
 // This lets tests inspect structured log output without parsing text.
 // ---------------------------------------------------------------------------
 
-type captureHandler struct {
+// captureStore is the shared storage behind one or more captureHandler
+// instances. Using a separate store lets WithAttrs return a new handler
+// that still appends to the same record slice.
+type captureStore struct {
 	mu      sync.Mutex
 	records []slog.Record
 }
 
+type captureHandler struct {
+	store *captureStore
+	attrs []slog.Attr
+}
+
 func newCaptureHandler() *captureHandler {
-	return &captureHandler{}
+	return &captureHandler{store: &captureStore{}}
 }
 
 func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
 
 func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.records = append(h.records, r)
+	h.store.mu.Lock()
+	defer h.store.mu.Unlock()
+	// Prepend handler-level attrs so they appear in the record for inspection.
+	r.AddAttrs(h.attrs...)
+	h.store.records = append(h.store.records, r)
 	return nil
 }
 
-func (h *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	merged := make([]slog.Attr, len(h.attrs), len(h.attrs)+len(attrs))
+	copy(merged, h.attrs)
+	merged = append(merged, attrs...)
+	return &captureHandler{store: h.store, attrs: merged}
+}
 
 func (h *captureHandler) WithGroup(_ string) slog.Handler { return h }
 
 // getRecords returns a snapshot of captured records.
 func (h *captureHandler) getRecords() []slog.Record {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	out := make([]slog.Record, len(h.records))
-	copy(out, h.records)
+	h.store.mu.Lock()
+	defer h.store.mu.Unlock()
+	out := make([]slog.Record, len(h.store.records))
+	copy(out, h.store.records)
 	return out
 }
 
@@ -317,6 +332,21 @@ func TestStatusWriter(t *testing.T) {
 			t.Errorf("underlying recorder status = %d; want %d", rec.Code, http.StatusCreated)
 		}
 	})
+
+	t.Run("Write without WriteHeader defaults status to 200", func(t *testing.T) {
+		// When a handler calls Write without an explicit WriteHeader, the
+		// Go HTTP library implicitly sends 200. statusWriter should also
+		// reflect 200 so the request logger records the correct status.
+		rec := httptest.NewRecorder()
+		sw := &statusWriter{ResponseWriter: rec}
+
+		sw.Write([]byte("hello"))
+
+		wantStatus := http.StatusOK
+		if sw.status != wantStatus {
+			t.Errorf("status = %d; want %d", sw.status, wantStatus)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +437,56 @@ func TestRequestLogger(t *testing.T) {
 			default:
 				// Accept any non-nil value; the important thing is it exists.
 			}
+		}
+	})
+
+	t.Run("includes request_id from context logger", func(t *testing.T) {
+		// When requestID middleware enriches the context logger with a
+		// request_id attribute, the requestLogger should pick up that
+		// enriched logger so the log entry includes the request_id.
+		ch := newCaptureHandler()
+		logger := slog.New(ch)
+
+		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// Chain requestID -> requestLogger -> handler so context has
+		// the enriched logger when requestLogger runs.
+		handler := requestID(logger)(requestLogger(logger)(inner))
+
+		req := httptest.NewRequest(http.MethodGet, "/with-id", nil)
+		req.Header.Set("X-Request-ID", "test-req-id-42")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		records := ch.getRecords()
+		if len(records) == 0 {
+			t.Fatal("no log records captured")
+		}
+
+		// Find the "request completed" record.
+		var found bool
+		for _, r := range records {
+			if r.Message != "request completed" {
+				continue
+			}
+			attrs := make(map[string]any)
+			r.Attrs(func(a slog.Attr) bool {
+				attrs[a.Key] = a.Value.Any()
+				return true
+			})
+			if v, ok := attrs["request_id"]; !ok {
+				t.Error("request completed log record missing 'request_id' attribute; requestLogger should use the context logger enriched by requestID middleware")
+			} else if v != "test-req-id-42" {
+				t.Errorf("request_id = %v; want %q", v, "test-req-id-42")
+			}
+			found = true
+			break
+		}
+		if !found {
+			t.Error("no 'request completed' log record found")
 		}
 	})
 }
