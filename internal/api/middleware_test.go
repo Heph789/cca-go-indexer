@@ -409,6 +409,107 @@ func TestRequestLogger(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("uses request-scoped logger from context for request_id correlation", func(t *testing.T) {
+		// When requestID middleware enriches the context logger with a
+		// request_id attribute, requestLogger should use that context logger
+		// so that request completion logs include the request_id field.
+		ch := newCaptureHandler()
+		logger := slog.New(ch)
+
+		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// Build chain: requestID -> requestLogger -> inner
+		// requestID injects an enriched logger into context; requestLogger
+		// should pick it up from context.
+		handler := requestID(logger)(requestLogger(logger)(inner))
+
+		req := httptest.NewRequest(http.MethodGet, "/correlated", nil)
+		req.Header.Set("X-Request-ID", "corr-test-001")
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		records := ch.getRecords()
+		if len(records) == 0 {
+			t.Fatal("no log records captured")
+		}
+
+		// Find the "request completed" log entry and check it has request_id.
+		var found bool
+		for _, r := range records {
+			if r.Message == "request completed" {
+				found = true
+				var hasRequestID bool
+				r.Attrs(func(a slog.Attr) bool {
+					if a.Key == "request_id" {
+						hasRequestID = true
+						if a.Value.String() != "corr-test-001" {
+							t.Errorf("request_id = %q; want %q", a.Value.String(), "corr-test-001")
+						}
+						return false
+					}
+					return true
+				})
+				if !hasRequestID {
+					t.Error("request completed log missing 'request_id' attribute; requestLogger should use context logger")
+				}
+			}
+		}
+		if !found {
+			t.Error("no 'request completed' log record found")
+		}
+	})
+
+	t.Run("logs status 200 when handler calls Write without WriteHeader", func(t *testing.T) {
+		// When a handler calls Write() without explicitly calling WriteHeader(),
+		// Go's net/http implicitly sends 200. The statusWriter should report
+		// 200 (not 0) in the log entry.
+		ch := newCaptureHandler()
+		logger := slog.New(ch)
+
+		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte(`{"implicit":true}`))
+		})
+		handler := requestLogger(logger)(inner)
+
+		req := httptest.NewRequest(http.MethodGet, "/implicit-200", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		records := ch.getRecords()
+		if len(records) == 0 {
+			t.Fatal("no log records captured")
+		}
+
+		last := records[len(records)-1]
+		attrs := make(map[string]any)
+		last.Attrs(func(a slog.Attr) bool {
+			attrs[a.Key] = a.Value.Any()
+			return true
+		})
+
+		if v, ok := attrs["status"]; !ok {
+			t.Error("log record missing 'status' attribute")
+		} else {
+			var status int64
+			switch s := v.(type) {
+			case int:
+				status = int64(s)
+			case int64:
+				status = s
+			default:
+				t.Fatalf("status attr has unexpected type %T", v)
+			}
+			wantStatus := int64(http.StatusOK)
+			if status != wantStatus {
+				t.Errorf("status = %d; want %d (implicit 200 when Write called without WriteHeader)", status, wantStatus)
+			}
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
