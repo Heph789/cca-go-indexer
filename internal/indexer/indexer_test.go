@@ -38,8 +38,8 @@ func TestIndexer_LoadsCursorFromStore(t *testing.T) {
 	s := newMockStore()
 
 	// Cursor at block 100
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -63,7 +63,7 @@ func TestIndexer_LoadsCursorFromStore(t *testing.T) {
 	}
 
 	// CursorRepo.Upsert to avoid nil panic
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		return nil
 	}
 
@@ -88,8 +88,8 @@ func TestIndexer_UsesStartBlockWhenNoCursor(t *testing.T) {
 	s := newMockStore()
 
 	// No cursor
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 0, "", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 0, common.Hash{}, nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -111,7 +111,7 @@ func TestIndexer_UsesStartBlockWhenNoCursor(t *testing.T) {
 		return nil, nil
 	}
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		return nil
 	}
 
@@ -135,8 +135,8 @@ func TestIndexer_CorrectBlockRange(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -158,7 +158,7 @@ func TestIndexer_CorrectBlockRange(t *testing.T) {
 		return nil, nil
 	}
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		return nil
 	}
 
@@ -190,8 +190,8 @@ func TestIndexer_DispatchesLogsThroughRegistry(t *testing.T) {
 	eventID := common.HexToHash("0xaaaa")
 	handler := &mockHandler{eventName: "TestEvent", eventID: eventID}
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -215,7 +215,7 @@ func TestIndexer_DispatchesLogsThroughRegistry(t *testing.T) {
 		return []types.Log{testLog}, nil
 	}
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		cancel()
 		return nil
 	}
@@ -240,8 +240,8 @@ func TestIndexer_InsertsBlockHashes(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -263,14 +263,14 @@ func TestIndexer_InsertsBlockHashes(t *testing.T) {
 	var mu sync.Mutex
 	var insertedBlocks []uint64
 
-	s.blockRepo.InsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error {
+	s.blockRepo.InsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error {
 		mu.Lock()
 		insertedBlocks = append(insertedBlocks, blockNumber)
 		mu.Unlock()
 		return nil
 	}
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		cancel()
 		return nil
 	}
@@ -303,8 +303,8 @@ func TestIndexer_AdvancesCursorToEndOfBatch(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -324,7 +324,7 @@ func TestIndexer_AdvancesCursorToEndOfBatch(t *testing.T) {
 	}
 
 	var upsertedBlock uint64
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		upsertedBlock = blockNumber
 		cancel()
 		return nil
@@ -348,8 +348,8 @@ func TestIndexer_SleepsWhenAtChainHead(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	// Chain head is at or below cursor
@@ -384,8 +384,8 @@ func TestIndexer_AppliesConfirmationsBuffer(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 90, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 90, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -407,7 +407,7 @@ func TestIndexer_AppliesConfirmationsBuffer(t *testing.T) {
 		return nil, nil
 	}
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		return nil
 	}
 
@@ -433,8 +433,8 @@ func TestIndexer_StopsWhenContextCancelled(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 0, "", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 0, common.Hash{}, nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -460,8 +460,8 @@ func TestIndexer_HeadersFetchedConcurrently(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -472,7 +472,7 @@ func TestIndexer_HeadersFetchedConcurrently(t *testing.T) {
 		return nil, nil
 	}
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		return nil
 	}
 
@@ -497,7 +497,7 @@ func TestIndexer_HeadersFetchedConcurrently(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		cancel()
 		return nil
 	}
@@ -524,8 +524,8 @@ func TestIndexer_HeaderConcurrencyBounded(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -562,7 +562,7 @@ func TestIndexer_HeaderConcurrencyBounded(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		cancel()
 		return nil
 	}
@@ -593,8 +593,8 @@ func TestIndexer_HeaderFetchErrorCancelsRemaining(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -605,7 +605,7 @@ func TestIndexer_HeaderFetchErrorCancelsRemaining(t *testing.T) {
 		return nil, nil
 	}
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		return nil
 	}
 
@@ -668,8 +668,8 @@ func TestIndexer_HeaderResultOrderMatchesBlockNumber(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -699,14 +699,14 @@ func TestIndexer_HeaderResultOrderMatchesBlockNumber(t *testing.T) {
 	var mu sync.Mutex
 	var insertedBlocks []uint64
 
-	s.blockRepo.InsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error {
+	s.blockRepo.InsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error {
 		mu.Lock()
 		insertedBlocks = append(insertedBlocks, blockNumber)
 		mu.Unlock()
 		return nil
 	}
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		cancel()
 		return nil
 	}
@@ -741,8 +741,8 @@ func TestIndexer_HeaderConcurrencyDefaultsToOne(t *testing.T) {
 	ethClient := &mockEthClient{}
 	s := newMockStore()
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -778,7 +778,7 @@ func TestIndexer_HeaderConcurrencyDefaultsToOne(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		cancel()
 		return nil
 	}
@@ -809,8 +809,8 @@ func TestIndexer_AllWritesInsideWithTx(t *testing.T) {
 	eventID := common.HexToHash("0xaaaa")
 	handler := &mockHandler{eventName: "TestEvent", eventID: eventID}
 
-	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, string, error) {
-		return 100, "0xabc", nil
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
 	}
 
 	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
@@ -855,14 +855,14 @@ func TestIndexer_AllWritesInsideWithTx(t *testing.T) {
 		return nil
 	}
 
-	txBlockRepo.InsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash string) error {
+	txBlockRepo.InsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error {
 		if withinTx {
 			blockInsertUsedTxStore = true
 		}
 		return nil
 	}
 
-	txCursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash string) error {
+	txCursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
 		if withinTx {
 			cursorUpsertUsedTxStore = true
 		}
