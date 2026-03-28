@@ -12,6 +12,10 @@ import (
 	"github.com/cca/go-indexer/internal/store"
 )
 
+// CacheControlImmutable is the Cache-Control header for immutable on-chain
+// data that never changes once indexed (e.g., AuctionCreated events).
+const CacheControlImmutable = "public, max-age=86400, immutable"
+
 type AuctionHandler struct {
 	Store   store.Store
 	ChainID int64
@@ -80,6 +84,6 @@ func (h *AuctionHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
+	w.Header().Set("Cache-Control", CacheControlImmutable)
 	httputil.WriteJSON(w, http.StatusOK, httputil.Response{Data: toAuctionResponse(auction)})
 }

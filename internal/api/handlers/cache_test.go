@@ -16,7 +16,7 @@ import (
 // ---------------------------------------------------------------------------
 
 func TestAuctionHandler_CacheHeaders(t *testing.T) {
-	const wantCache = "public, max-age=86400, immutable"
+	wantCache := CacheControlImmutable
 
 	t.Run("sets cache header on 200 success", func(t *testing.T) {
 		// AuctionCreated events are immutable on-chain data. Once indexed,
