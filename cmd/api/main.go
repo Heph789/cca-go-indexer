@@ -37,18 +37,22 @@ func main() {
 	defer st.Close()
 
 	auctionHandler := &handlers.AuctionHandler{Store: st, ChainID: cfg.ChainID}
+	healthHandler := &handlers.HealthHandler{Store: st, Logger: logger}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
-	mux.HandleFunc("GET /api/v1/auctions/{address}", auctionHandler.Get)
+	// Application routes go through the middleware chain.
+	appMux := http.NewServeMux()
+	appMux.HandleFunc("GET /api/v1/auctions/{address}", auctionHandler.Get)
+
+	// Health probes bypass the middleware chain so they stay fast,
+	// dependency-free, and never produce request logs that drown out
+	// real traffic.
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("GET /health", healthHandler.Health)
+	healthMux.HandleFunc("GET /ready", healthHandler.Ready)
 
 	srv := api.NewServer(api.ServerConfig{
 		Port: cfg.Port,
-	}, mux, logger)
+	}, appMux, healthMux, logger)
 
 	go func() {
 		logger.Info("starting api server", "port", cfg.Port)

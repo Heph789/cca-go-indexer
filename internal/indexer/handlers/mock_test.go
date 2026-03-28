@@ -32,7 +32,8 @@ func (m *mockStore) BlockRepo() store.BlockRepository        { return m.blockRep
 func (m *mockStore) WithTx(ctx context.Context, fn func(txStore store.Store) error) error {
 	return fn(m)
 }
-func (m *mockStore) Close() {}
+func (m *mockStore) Ping(_ context.Context) error { return nil }
+func (m *mockStore) Close()                       {}
 
 type mockAuctionRepo struct {
 	InsertFn          func(ctx context.Context, auction *cca.Auction) error

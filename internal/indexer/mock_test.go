@@ -87,6 +87,8 @@ func (m *mockStore) WithTx(ctx context.Context, fn func(txStore store.Store) err
 	return fn(txStore)
 }
 
+func (m *mockStore) Ping(_ context.Context) error { return nil }
+
 func (m *mockStore) Close() {
 	if m.CloseFn != nil {
 		m.CloseFn()
