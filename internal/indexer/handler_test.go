@@ -19,8 +19,7 @@ func TestHandlerRegistry_DispatchesToCorrectHandler(t *testing.T) {
 	handlerA := &mockHandler{eventName: "EventA", eventID: idA}
 	handlerB := &mockHandler{eventName: "EventB", eventID: idB}
 
-	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
-	registry := NewRegistry(logger, handlerA, handlerB)
+	registry := NewRegistry(noopLogger(), handlerA, handlerB)
 
 	log := types.Log{
 		Topics: []common.Hash{idA},
@@ -48,8 +47,7 @@ func TestHandlerRegistry_TopicFilterReturnsAllEventIDs(t *testing.T) {
 	handlerA := &mockHandler{eventName: "EventA", eventID: idA}
 	handlerB := &mockHandler{eventName: "EventB", eventID: idB}
 
-	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
-	registry := NewRegistry(logger, handlerA, handlerB)
+	registry := NewRegistry(noopLogger(), handlerA, handlerB)
 
 	filter := registry.TopicFilter()
 
@@ -77,8 +75,7 @@ func TestHandlerRegistry_TopicFilterReturnsAllEventIDs(t *testing.T) {
 
 // Verifies that HandleLog returns an error when the log has no topics.
 func TestHandleLog_ErrorOnNoTopics(t *testing.T) {
-	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
-	registry := NewRegistry(logger)
+	registry := NewRegistry(noopLogger())
 
 	log := types.Log{
 		Topics: []common.Hash{},
@@ -98,8 +95,7 @@ func TestHandleLog_ErrorOnNoTopics(t *testing.T) {
 func TestHandleLog_ErrorOnUnregisteredTopic(t *testing.T) {
 	idA := common.HexToHash("0xaaaa")
 	handlerA := &mockHandler{eventName: "EventA", eventID: idA}
-	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
-	registry := NewRegistry(logger, handlerA)
+	registry := NewRegistry(noopLogger(), handlerA)
 
 	unknownID := common.HexToHash("0xcccc")
 	log := types.Log{
@@ -147,8 +143,6 @@ func TestNewRegistry_PanicsOnDuplicateEventID(t *testing.T) {
 	h1 := &mockHandler{eventName: "Event1", eventID: id}
 	h2 := &mockHandler{eventName: "Event2", eventID: id}
 
-	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
-
 	defer func() {
 		r := recover()
 		if r == nil {
@@ -156,5 +150,5 @@ func TestNewRegistry_PanicsOnDuplicateEventID(t *testing.T) {
 		}
 	}()
 
-	NewRegistry(logger, h1, h2)
+	NewRegistry(noopLogger(), h1, h2)
 }
