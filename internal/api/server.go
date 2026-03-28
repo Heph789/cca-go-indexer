@@ -41,6 +41,10 @@ func NewServer(cfg ServerConfig, mux *http.ServeMux, logger *slog.Logger) *Serve
 	}
 }
 
+func (s *Server) Handler() http.Handler {
+	return s.httpServer.Handler
+}
+
 func (s *Server) Start() error {
 	return s.httpServer.ListenAndServe()
 }
