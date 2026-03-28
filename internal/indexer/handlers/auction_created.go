@@ -26,18 +26,30 @@ func (h *AuctionCreatedHandler) EventID() common.Hash {
 	return ethabi.AuctionCreatedEventID
 }
 
+var auctionParamsTupleType = mustABITupleType()
+
+func mustABITupleType() abi.Type {
+	t, err := abi.NewType("tuple", "", []abi.ArgumentMarshaling{
+		{Name: "currency", Type: "address"},
+		{Name: "tokensRecipient", Type: "address"},
+		{Name: "fundsRecipient", Type: "address"},
+		{Name: "startBlock", Type: "uint64"},
+		{Name: "endBlock", Type: "uint64"},
+		{Name: "claimBlock", Type: "uint64"},
+		{Name: "tickSpacing", Type: "uint256"},
+		{Name: "validationHook", Type: "address"},
+		{Name: "floorPrice", Type: "uint256"},
+		{Name: "requiredCurrencyRaised", Type: "uint128"},
+		{Name: "auctionStepsData", Type: "bytes"},
+	})
+	if err != nil {
+		panic("bad abi tuple type: " + err.Error())
+	}
+	return t
+}
+
 var auctionParamsArgs = abi.Arguments{
-	{Name: "currency", Type: mustABIType("address")},
-	{Name: "tokensRecipient", Type: mustABIType("address")},
-	{Name: "fundsRecipient", Type: mustABIType("address")},
-	{Name: "startBlock", Type: mustABIType("uint64")},
-	{Name: "endBlock", Type: mustABIType("uint64")},
-	{Name: "claimBlock", Type: mustABIType("uint64")},
-	{Name: "tickSpacing", Type: mustABIType("uint256")},
-	{Name: "validationHook", Type: mustABIType("address")},
-	{Name: "floorPrice", Type: mustABIType("uint256")},
-	{Name: "requiredCurrencyRaised", Type: mustABIType("uint128")},
-	{Name: "auctionStepsData", Type: mustABIType("bytes")},
+	{Name: "params", Type: auctionParamsTupleType},
 }
 
 var eventDataArgs = abi.Arguments{
@@ -68,16 +80,31 @@ func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log t
 	if err != nil {
 		return fmt.Errorf("unpack config data: %w", err)
 	}
-	currency := paramVals[0].(common.Address)
-	tokensRecipient := paramVals[1].(common.Address)
-	fundsRecipient := paramVals[2].(common.Address)
-	startBlock := paramVals[3].(uint64)
-	endBlock := paramVals[4].(uint64)
-	claimBlock := paramVals[5].(uint64)
-	tickSpacing := paramVals[6].(*big.Int)
-	validationHook := paramVals[7].(common.Address)
-	floorPrice := paramVals[8].(*big.Int)
-	requiredCurrencyRaised := paramVals[9].(*big.Int)
+
+	params := paramVals[0].(struct {
+		Currency               common.Address `json:"currency"`
+		TokensRecipient        common.Address `json:"tokensRecipient"`
+		FundsRecipient         common.Address `json:"fundsRecipient"`
+		StartBlock             uint64         `json:"startBlock"`
+		EndBlock               uint64         `json:"endBlock"`
+		ClaimBlock             uint64         `json:"claimBlock"`
+		TickSpacing            *big.Int       `json:"tickSpacing"`
+		ValidationHook         common.Address `json:"validationHook"`
+		FloorPrice             *big.Int       `json:"floorPrice"`
+		RequiredCurrencyRaised *big.Int       `json:"requiredCurrencyRaised"`
+		AuctionStepsData       []byte         `json:"auctionStepsData"`
+	})
+
+	currency := params.Currency
+	tokensRecipient := params.TokensRecipient
+	fundsRecipient := params.FundsRecipient
+	startBlock := params.StartBlock
+	endBlock := params.EndBlock
+	claimBlock := params.ClaimBlock
+	tickSpacing := params.TickSpacing
+	validationHook := params.ValidationHook
+	floorPrice := params.FloorPrice
+	requiredCurrencyRaised := params.RequiredCurrencyRaised
 
 	topicStrs := make([]string, len(log.Topics))
 	for i, t := range log.Topics {

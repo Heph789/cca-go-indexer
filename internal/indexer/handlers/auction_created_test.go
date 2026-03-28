@@ -31,19 +31,34 @@ type auctionParameters struct {
 func buildTestLogData(t *testing.T, amount *big.Int, params auctionParameters) []byte {
 	t.Helper()
 
-	configData, err := auctionParamsArgs.Pack(
-		params.Currency,
-		params.TokensRecipient,
-		params.FundsRecipient,
-		params.StartBlock,
-		params.EndBlock,
-		params.ClaimBlock,
-		params.TickSpacing,
-		params.ValidationHook,
-		params.FloorPrice,
-		params.RequiredCurrencyRaised,
-		params.AuctionStepsData,
-	)
+	// Pack as a tuple struct — matches how Solidity's abi.encode(AuctionParameters) works
+	paramStruct := struct {
+		Currency               common.Address
+		TokensRecipient        common.Address
+		FundsRecipient         common.Address
+		StartBlock             uint64
+		EndBlock               uint64
+		ClaimBlock             uint64
+		TickSpacing            *big.Int
+		ValidationHook         common.Address
+		FloorPrice             *big.Int
+		RequiredCurrencyRaised *big.Int
+		AuctionStepsData       []byte
+	}{
+		Currency:               params.Currency,
+		TokensRecipient:        params.TokensRecipient,
+		FundsRecipient:         params.FundsRecipient,
+		StartBlock:             params.StartBlock,
+		EndBlock:               params.EndBlock,
+		ClaimBlock:             params.ClaimBlock,
+		TickSpacing:            params.TickSpacing,
+		ValidationHook:         params.ValidationHook,
+		FloorPrice:             params.FloorPrice,
+		RequiredCurrencyRaised: params.RequiredCurrencyRaised,
+		AuctionStepsData:       params.AuctionStepsData,
+	}
+
+	configData, err := auctionParamsArgs.Pack(paramStruct)
 	if err != nil {
 		t.Fatalf("failed to pack configData: %v", err)
 	}
