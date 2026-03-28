@@ -8,7 +8,9 @@ import (
 	"time"
 )
 
+// ServerConfig holds the network configuration for the API server.
 type ServerConfig struct {
+	Host string
 	Port string
 }
 
@@ -21,6 +23,14 @@ type Server struct {
 // cors -> requestID -> recovery -> requestLogger -> appMux.
 // Health probes (healthMux) bypass the middleware chain entirely.
 func NewServer(cfg ServerConfig, appMux *http.ServeMux, healthMux *http.ServeMux, logger *slog.Logger) *Server {
+	// Default to localhost when no host is specified. This is safer than
+	// binding to all interfaces and ensures consistent behavior across
+	// platforms (e.g. macOS treats 0.0.0.0 and 127.0.0.1 as distinct).
+	host := cfg.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
 	middlewareHandler := cors(
 		requestID(logger)(
 			recovery(logger)(
@@ -38,7 +48,7 @@ func NewServer(cfg ServerConfig, appMux *http.ServeMux, healthMux *http.ServeMux
 
 	return &Server{
 		httpServer: &http.Server{
-			Addr:              net.JoinHostPort("", cfg.Port),
+			Addr:              net.JoinHostPort(host, cfg.Port),
 			Handler:           outer,
 			ReadTimeout:       5 * time.Second,
 			ReadHeaderTimeout: 2 * time.Second,

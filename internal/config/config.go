@@ -16,6 +16,7 @@ type Config struct {
 	ChainID         int64
 	LogLevel        string
 	LogFormat       string
+	Host            string
 	Port            string
 
 	// Indexer-specific
@@ -49,6 +50,7 @@ func loadBase() (*Config, error) {
 
 	cfg.LogLevel = envOrDefault("LOG_LEVEL", "info")
 	cfg.LogFormat = envOrDefault("LOG_FORMAT", "json")
+	cfg.Host = envOrDefault("HOST", "127.0.0.1")
 	cfg.Port = envOrDefault("PORT", "8080")
 
 	cfg.RPCURL = os.Getenv("RPC_URL")
