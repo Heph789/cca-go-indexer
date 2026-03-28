@@ -6,8 +6,10 @@ Local simulation environment for testing the CCA Go Indexer end-to-end without e
 
 ```
 simulate/
-  chain/     Local Anvil blockchain with deployed CCA contracts
-  e2e/       End-to-end orchestration and verification scripts
+  chain/        Local Anvil blockchain with deployed CCA contracts
+  e2e/          End-to-end orchestration and verification scripts
+  resilience/   Resilience QA simulations (retry, budget, reorg)
+  production/   Production readiness QA (middleware, probes, cache)
 
 reference/
   continuous-clearing-auction/   Git submodule of the CCA Solidity contracts
