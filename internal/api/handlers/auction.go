@@ -79,6 +79,7 @@ func (h *AuctionHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Cache-Control", "public, max-age=86400, immutable")
 	httputil.WriteJSON(w, http.StatusOK, httputil.Response{Data: toAuctionResponse(auction)})
 }
 
