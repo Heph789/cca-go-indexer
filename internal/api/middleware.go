@@ -1,14 +1,9 @@
-// Package api provides HTTP middleware for the indexer API server.
-//
-// The middleware chain is applied in this order:
-//
-//	cors -> requestID -> recovery -> requestLogger -> handler
 package api
 
 import (
 	"context"
 	"crypto/rand"
-	"fmt"
+	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"time"
@@ -61,7 +56,7 @@ func requestID(logger *slog.Logger) func(http.Handler) http.Handler {
 func generateID() string {
 	b := make([]byte, 16)
 	_, _ = rand.Read(b)
-	return fmt.Sprintf("%x", b)
+	return hex.EncodeToString(b)
 }
 
 // statusWriter wraps http.ResponseWriter to capture the HTTP status code
