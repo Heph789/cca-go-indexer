@@ -218,10 +218,8 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 		lastBlockHash := headers[to-from].hash
 
 		err = idx.store.WithTx(ctx, func(txStore store.Store) error {
-			for _, log := range logs {
-				if err := idx.registry.HandleLog(ctx, idx.config.ChainID, log, txStore); err != nil {
-					return fmt.Errorf("handling log: %w", err)
-				}
+			if err := idx.registry.HandleLogs(ctx, idx.config.ChainID, logs, txStore); err != nil {
+				return fmt.Errorf("handling logs: %w", err)
 			}
 
 			for i, h := range headers {
