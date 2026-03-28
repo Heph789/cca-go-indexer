@@ -79,11 +79,20 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			sw := &statusWriter{ResponseWriter: w}
+			sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 
 			next.ServeHTTP(sw, r)
 
-			logger.Info("request completed",
+			// Use the request-scoped logger from context (enriched with
+			// request_id by the requestID middleware) so that request
+			// completion logs include the request ID for correlation.
+			// Fall back to the middleware's own logger if no context
+			// logger was set (e.g. when requestID middleware is absent).
+			reqLogger := logger
+			if l, ok := r.Context().Value(loggerKey).(*slog.Logger); ok {
+				reqLogger = l
+			}
+			reqLogger.Info("request completed",
 				"method", r.Method,
 				"path", r.URL.Path,
 				"status", sw.status,
