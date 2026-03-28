@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/big"
 	"strings"
@@ -18,7 +19,7 @@ import (
 )
 
 func noopLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(nil, nil))
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
 }
 
 // helper to build a ChainIndexer with common defaults
