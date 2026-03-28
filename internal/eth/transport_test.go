@@ -1,6 +1,7 @@
 package eth
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,10 +16,17 @@ type mockRoundTripper struct {
 	errors    []error
 	calls     int
 	callTimes []time.Time
+	bodies    []string // request bodies captured on each call
 }
 
 func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	m.callTimes = append(m.callTimes, time.Now())
+	if req.Body != nil {
+		b, _ := io.ReadAll(req.Body)
+		m.bodies = append(m.bodies, string(b))
+	} else {
+		m.bodies = append(m.bodies, "")
+	}
 	i := m.calls
 	m.calls++
 	if i < len(m.responses) {
@@ -271,6 +279,80 @@ func TestNewHTTPClientWithRetry(t *testing.T) {
 	}
 	if transport.base == nil {
 		t.Error("expected non-nil base transport")
+	}
+}
+
+func TestRetryTransport_PreservesRequestBodyAcrossRetries(t *testing.T) {
+	mock := &mockRoundTripper{
+		responses: []*http.Response{
+			makeResponse(429),
+			makeResponse(429),
+			makeResponse(200),
+		},
+		errors: []error{nil, nil, nil},
+	}
+
+	transport := &retryTransport{
+		base:       mock,
+		maxRetries: 3,
+		baseDelay:  1 * time.Millisecond,
+	}
+
+	body := `{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}`
+	req, _ := http.NewRequest("POST", "http://example.com", strings.NewReader(body))
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+	if mock.calls != 3 {
+		t.Errorf("expected 3 calls, got %d", mock.calls)
+	}
+	// Every attempt must have received the full request body.
+	for i, b := range mock.bodies {
+		if b != body {
+			t.Errorf("attempt %d: expected body %q, got %q", i, body, b)
+		}
+	}
+}
+
+func TestRetryTransport_RespectsContextCancellation(t *testing.T) {
+	mock := &mockRoundTripper{
+		responses: []*http.Response{
+			makeResponse(429),
+			makeResponse(429),
+			makeResponse(200),
+		},
+		errors: []error{nil, nil, nil},
+	}
+
+	transport := &retryTransport{
+		base:       mock,
+		maxRetries: 3,
+		baseDelay:  5 * time.Second, // long delay so cancellation fires first
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, "GET", "http://example.com", nil)
+
+	// Cancel after a short delay (before the backoff sleep finishes).
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	_, err := transport.RoundTrip(req)
+	elapsed := time.Since(start)
+
+	// Should return quickly with context error, not wait for full backoff.
+	if err == nil || err != context.Canceled {
+		t.Errorf("expected context.Canceled error, got: %v", err)
+	}
+	if elapsed > 1*time.Second {
+		t.Errorf("expected fast return on context cancellation, took %v", elapsed)
 	}
 }
 
