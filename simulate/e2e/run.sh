@@ -24,7 +24,6 @@ DATABASE_URL="${DATABASE_URL:-postgres://cca:cca@localhost:5432/cca_indexer?sslm
 API_PORT="${API_PORT:-8080}"
 ANVIL_PORT="${ANVIL_PORT:-8545}"
 RPC_URL="http://127.0.0.1:$ANVIL_PORT"
-ANVIL_PRIVATE_KEY="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 
 # Cleanup function to kill background processes on exit
 cleanup() {
@@ -110,9 +109,8 @@ sleep 10
 # --- Step 6: Verify ---
 echo ""
 echo "==> Running verification..."
-"$SCRIPT_DIR/verify.sh" "$AUCTION_ADDRESS" "$API_PORT"
-
-EXIT_CODE=$?
+EXIT_CODE=0
+"$SCRIPT_DIR/verify.sh" "$AUCTION_ADDRESS" "$API_PORT" || EXIT_CODE=$?
 if [[ $EXIT_CODE -eq 0 ]]; then
     echo ""
     echo "========================================="
