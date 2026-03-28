@@ -3,24 +3,18 @@ package indexer
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"math/big"
+	"strings"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-// ---------------------------------------------------------------------------
-// detectReorg tests
-// ---------------------------------------------------------------------------
-
 func TestDetectReorg_ReturnsFalseWhenHashesMatch(t *testing.T) {
 	t.Parallel()
 
-	storedHash := common.HexToHash("0xaaa")
 	header := &types.Header{Number: big.NewInt(10), Nonce: types.BlockNonce{1}}
-	// We need the stored hash to equal header.Hash(), so compute it first.
 	chainHash := header.Hash()
 
 	client := &mockEthClient{
@@ -37,7 +31,6 @@ func TestDetectReorg_ReturnsFalseWhenHashesMatch(t *testing.T) {
 			if bn != 10 {
 				t.Fatalf("unexpected block number %d", bn)
 			}
-			_ = storedHash // suppress unused warning; we override below
 			return chainHash, nil
 		},
 	}
@@ -155,18 +148,6 @@ func TestDetectReorg_PropagatesEthClientError(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// handleReorg tests
-// ---------------------------------------------------------------------------
-
-func newTestLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(nopWriter{}, nil))
-}
-
-type nopWriter struct{}
-
-func (nopWriter) Write(p []byte) (int, error) { return len(p), nil }
-
 // makeHeaders creates a map of block number -> *types.Header with distinct hashes.
 func makeHeaders(blocks ...uint64) map[uint64]*types.Header {
 	m := make(map[uint64]*types.Header, len(blocks))
@@ -205,7 +186,7 @@ func TestHandleReorg_FindsCommonAncestor(t *testing.T) {
 		}
 	}
 
-	ancestor, err := handleReorg(context.Background(), newTestLogger(), client, ms, 324, 100)
+	ancestor, err := handleReorg(context.Background(), noopLogger(), client, ms, 324, 100)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -256,7 +237,7 @@ func TestHandleReorg_RollsBackAllDataInTransaction(t *testing.T) {
 		return nil
 	}
 
-	_, err := handleReorg(context.Background(), newTestLogger(), client, ms, 324, 10)
+	_, err := handleReorg(context.Background(), noopLogger(), client, ms, 324, 10)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -298,7 +279,7 @@ func TestHandleReorg_ReturnsCommonAncestorBlockNumber(t *testing.T) {
 		return common.HexToHash("0xbad"), nil
 	}
 
-	ancestor, err := handleReorg(context.Background(), newTestLogger(), client, ms, 324, 7)
+	ancestor, err := handleReorg(context.Background(), noopLogger(), client, ms, 324, 7)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -321,30 +302,13 @@ func TestHandleReorg_ErrorWhenExceedsMaxReorgDepth(t *testing.T) {
 		return common.HexToHash("0xnomatch"), nil // never matches
 	}
 
-	_, err := handleReorg(context.Background(), newTestLogger(), client, ms, 324, 200)
+	_, err := handleReorg(context.Background(), noopLogger(), client, ms, 324, 200)
 	if err == nil {
 		t.Fatal("expected error for exceeding max reorg depth")
 	}
-	if !errors.Is(err, nil) { // just check it has the right message
-		// errors.Is won't match nil, so let's check the string
+	if !strings.Contains(err.Error(), "reorg deeper than 128 blocks") {
+		t.Fatalf("expected error containing %q, got: %v", "reorg deeper than 128 blocks", err)
 	}
-	expected := "reorg deeper than 128 blocks"
-	if err.Error() == "" || !containsStr(err.Error(), expected) {
-		t.Fatalf("expected error containing %q, got: %v", expected, err)
-	}
-}
-
-func containsStr(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(s) > 0 && containsSubstr(s, sub))
-}
-
-func containsSubstr(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
 
 func TestHandleReorg_GetsAncestorHashForCursorUpdate(t *testing.T) {
@@ -376,7 +340,7 @@ func TestHandleReorg_GetsAncestorHashForCursorUpdate(t *testing.T) {
 		return nil
 	}
 
-	_, err := handleReorg(context.Background(), newTestLogger(), client, ms, 324, 8)
+	_, err := handleReorg(context.Background(), noopLogger(), client, ms, 324, 8)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
