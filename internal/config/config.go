@@ -24,6 +24,8 @@ type Config struct {
 	BlockBatchSize    uint64
 	Confirmations     uint64
 	HeaderConcurrency int
+	RetryMaxRetries   int
+	RetryBaseDelay    time.Duration
 }
 
 func loadBase() (*Config, error) {
@@ -78,6 +80,19 @@ func loadBase() (*Config, error) {
 		return nil, err
 	}
 	cfg.HeaderConcurrency = int(hc)
+
+	mr, err := parseUint64Env("RETRY_MAX_RETRIES", 5)
+	if err != nil {
+		return nil, err
+	}
+	cfg.RetryMaxRetries = int(mr)
+
+	delayStr := envOrDefault("RETRY_BASE_DELAY", "500ms")
+	delay, err := time.ParseDuration(delayStr)
+	if err != nil {
+		return nil, fmt.Errorf("parsing RETRY_BASE_DELAY: %w", err)
+	}
+	cfg.RetryBaseDelay = delay
 
 	return cfg, nil
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -19,11 +18,8 @@ type Client interface {
 	Close()
 }
 
-func NewClient(rpcURL string) (Client, error) {
-	httpClient := newHTTPClientWithRetry(RetryConfig{
-		MaxRetries: 5,
-		BaseDelay:  500 * time.Millisecond,
-	})
+func NewClient(rpcURL string, retryCfg RetryConfig) (Client, error) {
+	httpClient := newHTTPClientWithRetry(retryCfg)
 	c, err := rpc.DialOptions(context.Background(), rpcURL, rpc.WithHTTPClient(httpClient))
 	if err != nil {
 		return nil, fmt.Errorf("dial rpc: %w", err)
