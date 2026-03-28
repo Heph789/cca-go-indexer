@@ -13,6 +13,7 @@ type Store interface {
 	RawEventRepo() RawEventRepository
 	CursorRepo() CursorRepository
 	BlockRepo() BlockRepository
+	Ping(ctx context.Context) error
 	WithTx(ctx context.Context, fn func(txStore Store) error) error
 	Close()
 }

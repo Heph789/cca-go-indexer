@@ -88,6 +88,11 @@ func (s *pgStore) WithTx(ctx context.Context, fn func(txStore store.Store) error
 	return nil
 }
 
+// Ping checks database connectivity by sending a ping to the underlying pool.
+func (s *pgStore) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 func (s *pgStore) Close() {
 	s.pool.Close()
 }
