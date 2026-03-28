@@ -338,6 +338,21 @@ func TestStatusWriter(t *testing.T) {
 			t.Errorf("underlying recorder status = %d; want %d", rec.Code, http.StatusCreated)
 		}
 	})
+
+	t.Run("Write without WriteHeader defaults status to 200", func(t *testing.T) {
+		// When a handler calls Write without an explicit WriteHeader, the
+		// Go HTTP library implicitly sends 200. statusWriter should also
+		// reflect 200 so the request logger records the correct status.
+		rec := httptest.NewRecorder()
+		sw := &statusWriter{ResponseWriter: rec}
+
+		sw.Write([]byte("hello"))
+
+		wantStatus := http.StatusOK
+		if sw.status != wantStatus {
+			t.Errorf("status = %d; want %d", sw.status, wantStatus)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
