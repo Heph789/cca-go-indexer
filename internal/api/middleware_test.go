@@ -19,34 +19,55 @@ import (
 // This lets tests inspect structured log output without parsing text.
 // ---------------------------------------------------------------------------
 
-type captureHandler struct {
+// captureStore holds the shared state for captureHandler instances.
+// Multiple captureHandler instances (created via WithAttrs) share the
+// same store so all records are collected in one place.
+type captureStore struct {
 	mu      sync.Mutex
 	records []slog.Record
 }
 
+type captureHandler struct {
+	store *captureStore
+	// preAttrs are attributes added via WithAttrs, prepended to each record.
+	preAttrs []slog.Attr
+}
+
 func newCaptureHandler() *captureHandler {
-	return &captureHandler{}
+	return &captureHandler{store: &captureStore{}}
 }
 
 func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
 
 func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.records = append(h.records, r)
+	h.store.mu.Lock()
+	defer h.store.mu.Unlock()
+	// Prepend any pre-configured attrs so that attributes added via
+	// logger.With() appear on captured records.
+	if len(h.preAttrs) > 0 {
+		r.AddAttrs(h.preAttrs...)
+	}
+	h.store.records = append(h.store.records, r)
 	return nil
 }
 
-func (h *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
+func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	// Return a new captureHandler that shares the same store but has
+	// the additional attrs prepended to every record it handles.
+	combined := make([]slog.Attr, len(h.preAttrs)+len(attrs))
+	copy(combined, h.preAttrs)
+	copy(combined[len(h.preAttrs):], attrs)
+	return &captureHandler{store: h.store, preAttrs: combined}
+}
 
 func (h *captureHandler) WithGroup(_ string) slog.Handler { return h }
 
 // getRecords returns a snapshot of captured records.
 func (h *captureHandler) getRecords() []slog.Record {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	out := make([]slog.Record, len(h.records))
-	copy(out, h.records)
+	h.store.mu.Lock()
+	defer h.store.mu.Unlock()
+	out := make([]slog.Record, len(h.store.records))
+	copy(out, h.store.records)
 	return out
 }
 

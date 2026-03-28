@@ -21,7 +21,7 @@ func (h *HealthHandler) Health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
+	_, _ = w.Write([]byte(`{"status":"ok"}`))
 }
 
 // Ready is the readiness probe — "can this instance serve traffic?"
@@ -34,10 +34,10 @@ func (h *HealthHandler) Ready(w http.ResponseWriter, r *http.Request) {
 	if err := h.Store.Ping(r.Context()); err != nil {
 		h.Logger.Error("readiness check failed", "error", err)
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte(`{"status":"not_ready","reason":"database unreachable"}`))
+		_, _ = w.Write([]byte(`{"status":"not_ready","reason":"database unreachable"}`))
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ready"}`))
+	_, _ = w.Write([]byte(`{"status":"ready"}`))
 }
