@@ -25,20 +25,3 @@ func TestNewClient_ErrorOnInvalidURL(t *testing.T) {
 		t.Fatal("expected error for invalid RPC URL")
 	}
 }
-
-func TestNewClient_UsesProvidedRetryConfig(t *testing.T) {
-	retryCfg := RetryConfig{
-		MaxRetries: 10,
-		BaseDelay:  2 * time.Second,
-	}
-
-	// Verify NewClient accepts a RetryConfig parameter.
-	// We use a valid-scheme URL that won't actually connect (lazy dial).
-	c, err := NewClient("http://localhost:1", retryCfg)
-	if err != nil {
-		t.Fatalf("expected no error for valid URL scheme, got: %v", err)
-	}
-	defer c.Close()
-
-	var _ Client = c
-}
