@@ -46,12 +46,13 @@ func main() {
 	registry := indexer.NewRegistry(logger, &handlers.AuctionCreatedHandler{})
 
 	idxConfig := indexer.IndexerConfig{
-		ChainID:        cfg.ChainID,
-		StartBlock:     cfg.StartBlock,
-		PollInterval:   cfg.PollInterval,
-		BlockBatchSize: cfg.BlockBatchSize,
-		Confirmations:  cfg.Confirmations,
-		Addresses:      []common.Address{common.HexToAddress(cfg.FactoryAddr)},
+		ChainID:           cfg.ChainID,
+		StartBlock:        cfg.StartBlock,
+		PollInterval:      cfg.PollInterval,
+		BlockBatchSize:    cfg.BlockBatchSize,
+		Confirmations:     cfg.Confirmations,
+		HeaderConcurrency: cfg.HeaderConcurrency,
+		Addresses:         []common.Address{common.HexToAddress(cfg.FactoryAddr)},
 	}
 
 	idx := indexer.New(ethClient, st, registry, idxConfig, logger)
