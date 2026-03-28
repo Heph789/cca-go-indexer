@@ -1,3 +1,6 @@
 - we're not creating integration tests as we go along. not sure if this is an issue with the created issues (they don't specify creating integration tests), or an issue with the implementor agent
 - need a way to create root level issues. all root level issues should be created as a draft to be approved by human
 - need a way to organize root level issues. there might just be a collection of them that would be better served to be organized as a feature
+- use gh pr list --head <branch> --state all going forward for triage in implement issues
+- there's confusing between looking for sub-issues in the parent body or the actual sub-issue relationship.
+- the implementer isn't running build and test steps after completing each issue
