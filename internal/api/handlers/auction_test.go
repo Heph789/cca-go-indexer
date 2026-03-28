@@ -38,6 +38,7 @@ func (m *mockAuctionRepo) GetByAddress(ctx context.Context, chainID int64, aucti
 
 type mockStore struct {
 	auctionRepo *mockAuctionRepo
+	PingFn      func(ctx context.Context) error
 }
 
 func (m *mockStore) AuctionRepo() store.AuctionRepository  { return m.auctionRepo }
@@ -46,6 +47,12 @@ func (m *mockStore) CursorRepo() store.CursorRepository     { return nil }
 func (m *mockStore) BlockRepo() store.BlockRepository       { return nil }
 func (m *mockStore) WithTx(ctx context.Context, fn func(txStore store.Store) error) error {
 	return fn(m)
+}
+func (m *mockStore) Ping(ctx context.Context) error {
+	if m.PingFn != nil {
+		return m.PingFn(ctx)
+	}
+	return nil
 }
 func (m *mockStore) Close() {}
 
