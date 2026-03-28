@@ -49,6 +49,10 @@ Use a subagent to implement the issue such that the tests pass. This subagent sh
 
 Use the simplifier agent to clean up the code. Watch especially for dead code.
 
+## Subagent Discipline
+
+Steps 3, 4, and 5 MUST be performed by subagents — never in the implementor's own context. If a subagent call fails due to an API error or transient failure, retry the subagent call. Do NOT fall back to doing the work inline.
+
 ### 6. PR
 
 Remove the `in-progress` label from the issue:
