@@ -31,10 +31,25 @@ Ask for confirmation before creating anything.
 
 ### 3. Determine Insertion Point (sub-issues only)
 
-Find where to insert sub-issues in the parent's sub-issue list:
+Find where to insert new sub-issues in the parent's sub-issue list. The insertion point is **NOT** the issue the review feedback came from — it is the furthest-down-the-list issue that meets one of these criteria:
 
-1. Check for an issue labeled `in-progress` — insert after it.
-2. If none, find the latest sub-issue that already has a PR (the most recent predecessor) — insert after it.
+1. **First choice:** Find the sub-issue labeled `in-progress` — insert after it.
+2. **Fallback:** If no issue is `in-progress`, walk the parent's sub-issue list top-to-bottom and find the **last** sub-issue that already has an open or draft PR. Insert after that one.
+
+To verify: fetch the parent issue's sub-issue list, then for each sub-issue (starting from the bottom), check if it has the `in-progress` label or an associated PR. The first match scanning bottom-up is your insertion point.
+
+**Example:** If the review came from issue C's PR, but issues D and E also have PRs, the insertion point is after E — not after C.
+
+```
+- #30 A  (has PR)
+- #31 B  (has PR)
+- #32 C  (has PR) ← review feedback came from here
+- #33 D  (has PR)
+- #34 E  (has PR) ← insertion point is HERE
+- #99 X  ← new sub-issue goes here
+- #35 F
+- #36 G
+```
 
 ### 4. Create Issues
 

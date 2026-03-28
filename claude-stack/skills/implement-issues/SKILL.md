@@ -44,15 +44,24 @@ This automatically tracks the parent branch in Graphite's stack metadata, so lat
 
 ### 3. Red Phase — Tests First
 
-Use a subagent to create tests before any implementation (table-driven development). Create commits along the way and after finishing all tests. Ensure the tests run and fail.
+Use the `go-tester` agent to create tests before any implementation. This agent writes table-driven tests with thorough comments so reviewers can quickly understand what's being tested and why. Create commits along the way and after finishing all tests. Ensure the tests run and fail.
 
 ### 4. Green Phase — Implementation
 
 Use a subagent to implement the issue such that the tests pass. This subagent should implement test by test, committing at each step.
 
+**Commenting standards:**
+- Every exported function and method gets a Go doc comment explaining what it does, its parameters, and its return values.
+- Every package gets a doc comment in `doc.go` (or at the top of the primary file) explaining the package's purpose and how it fits into the system.
+- Non-obvious internal logic gets inline comments explaining *why*, not *what*.
+
 ### 5. Simplify
 
 Use the simplifier agent to clean up the code. Watch especially for dead code.
+
+## Subagent Discipline
+
+Steps 3, 4, and 5 MUST be performed by subagents — never in the implementor's own context. If a subagent call fails due to an API error or transient failure, retry the subagent call. Do NOT fall back to doing the work inline.
 
 ### 6. PR
 
@@ -70,22 +79,23 @@ gt stack submit --draft
 
 This creates a draft PR for the current branch (and updates any existing PRs in the stack). Graphite automatically sets the correct base branch and adds a stack overview to the PR description.
 
-After submitting, add the `pending review` label and link the PR to the issue:
+After submitting, add the `pending review` label:
 
 ```bash
 gh pr edit <PR_NUMBER> --add-label "pending review"
-
-# Get the PR node ID
-PR_ID=$(gh pr view <PR_NUMBER> --json id -q .id)
-# Get the issue node ID
-ISSUE_ID=$(gh issue view <ISSUE_NUMBER> --json id -q .id)
-# Link the PR to the issue
-gh api graphql -f query='mutation {
-  updatePullRequest(input: {pullRequestId: "'"$PR_ID"'", closingIssueIds: ["'"$ISSUE_ID"'"]}) {
-    pullRequest { id }
-  }
-}'
 ```
+
+**Link the PR to the issue.** Because stacked PRs merge into other feature branches (not `main`), GitHub's `Closes #N` keyword will NOT auto-close issues. Instead:
+
+1. **PR body reference.** The PR body MUST contain `Addresses #<ISSUE_NUMBER>` so the PR and issue are cross-referenced in GitHub's UI.
+
+2. **Close the issue explicitly** after the PR is merged:
+
+```bash
+gh issue close <ISSUE_NUMBER> --repo <OWNER/REPO>
+```
+
+Do NOT close the issue when creating the draft PR — only after it is merged.
 
 ### 7. Next
 
