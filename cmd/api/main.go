@@ -37,13 +37,11 @@ func main() {
 	defer st.Close()
 
 	auctionHandler := &handlers.AuctionHandler{Store: st, ChainID: cfg.ChainID}
+	healthHandler := &handlers.HealthHandler{Store: st, Logger: logger}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ok"}`))
-	})
+	mux.HandleFunc("GET /health", healthHandler.Health)
+	mux.HandleFunc("GET /ready", healthHandler.Ready)
 	mux.HandleFunc("GET /api/v1/auctions/{address}", auctionHandler.Get)
 
 	srv := api.NewServer(api.ServerConfig{
