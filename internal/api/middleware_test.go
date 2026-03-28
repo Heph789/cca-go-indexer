@@ -19,9 +19,9 @@ import (
 // This lets tests inspect structured log output without parsing text.
 // ---------------------------------------------------------------------------
 
-// captureStore holds the shared state for captureHandler instances.
-// Multiple captureHandler instances (created via WithAttrs) share the
-// same store so all records are collected in one place.
+// captureStore is the shared storage behind one or more captureHandler
+// instances. Using a separate store lets WithAttrs return a new handler
+// that still appends to the same record slice.
 type captureStore struct {
 	mu      sync.Mutex
 	records []slog.Record
@@ -29,8 +29,7 @@ type captureStore struct {
 
 type captureHandler struct {
 	store *captureStore
-	// preAttrs are attributes added via WithAttrs, prepended to each record.
-	preAttrs []slog.Attr
+	attrs []slog.Attr
 }
 
 func newCaptureHandler() *captureHandler {
@@ -42,22 +41,17 @@ func (h *captureHandler) Enabled(_ context.Context, _ slog.Level) bool { return 
 func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
 	h.store.mu.Lock()
 	defer h.store.mu.Unlock()
-	// Prepend any pre-configured attrs so that attributes added via
-	// logger.With() appear on captured records.
-	if len(h.preAttrs) > 0 {
-		r.AddAttrs(h.preAttrs...)
-	}
+	// Prepend handler-level attrs so they appear in the record for inspection.
+	r.AddAttrs(h.attrs...)
 	h.store.records = append(h.store.records, r)
 	return nil
 }
 
 func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	// Return a new captureHandler that shares the same store but has
-	// the additional attrs prepended to every record it handles.
-	combined := make([]slog.Attr, len(h.preAttrs)+len(attrs))
-	copy(combined, h.preAttrs)
-	copy(combined[len(h.preAttrs):], attrs)
-	return &captureHandler{store: h.store, preAttrs: combined}
+	merged := make([]slog.Attr, len(h.attrs), len(h.attrs)+len(attrs))
+	copy(merged, h.attrs)
+	merged = append(merged, attrs...)
+	return &captureHandler{store: h.store, attrs: merged}
 }
 
 func (h *captureHandler) WithGroup(_ string) slog.Handler { return h }
@@ -338,6 +332,21 @@ func TestStatusWriter(t *testing.T) {
 			t.Errorf("underlying recorder status = %d; want %d", rec.Code, http.StatusCreated)
 		}
 	})
+
+	t.Run("Write without WriteHeader defaults status to 200", func(t *testing.T) {
+		// When a handler calls Write without an explicit WriteHeader, the
+		// Go HTTP library implicitly sends 200. statusWriter should also
+		// reflect 200 so the request logger records the correct status.
+		rec := httptest.NewRecorder()
+		sw := &statusWriter{ResponseWriter: rec}
+
+		sw.Write([]byte("hello"))
+
+		wantStatus := http.StatusOK
+		if sw.status != wantStatus {
+			t.Errorf("status = %d; want %d", sw.status, wantStatus)
+		}
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -359,6 +368,8 @@ func TestRequestLogger(t *testing.T) {
 		handler := requestLogger(logger)(inner)
 
 		req := httptest.NewRequest(http.MethodPost, "/test/path", nil)
+		// Store the logger in context so requestLogger can retrieve it.
+		req = req.WithContext(WithLogger(req.Context(), logger))
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
@@ -431,10 +442,10 @@ func TestRequestLogger(t *testing.T) {
 		}
 	})
 
-	t.Run("uses request-scoped logger from context for request_id correlation", func(t *testing.T) {
+	t.Run("includes request_id from context logger", func(t *testing.T) {
 		// When requestID middleware enriches the context logger with a
-		// request_id attribute, requestLogger should use that context logger
-		// so that request completion logs include the request_id field.
+		// request_id attribute, the requestLogger should pick up that
+		// enriched logger so the log entry includes the request_id.
 		ch := newCaptureHandler()
 		logger := slog.New(ch)
 
@@ -442,13 +453,12 @@ func TestRequestLogger(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		// Build chain: requestID -> requestLogger -> inner
-		// requestID injects an enriched logger into context; requestLogger
-		// should pick it up from context.
+		// Chain requestID -> requestLogger -> handler so context has
+		// the enriched logger when requestLogger runs.
 		handler := requestID(logger)(requestLogger(logger)(inner))
 
-		req := httptest.NewRequest(http.MethodGet, "/correlated", nil)
-		req.Header.Set("X-Request-ID", "corr-test-001")
+		req := httptest.NewRequest(http.MethodGet, "/with-id", nil)
+		req.Header.Set("X-Request-ID", "test-req-id-42")
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
@@ -458,77 +468,27 @@ func TestRequestLogger(t *testing.T) {
 			t.Fatal("no log records captured")
 		}
 
-		// Find the "request completed" log entry and check it has request_id.
+		// Find the "request completed" record.
 		var found bool
 		for _, r := range records {
-			if r.Message == "request completed" {
-				found = true
-				var hasRequestID bool
-				r.Attrs(func(a slog.Attr) bool {
-					if a.Key == "request_id" {
-						hasRequestID = true
-						if a.Value.String() != "corr-test-001" {
-							t.Errorf("request_id = %q; want %q", a.Value.String(), "corr-test-001")
-						}
-						return false
-					}
-					return true
-				})
-				if !hasRequestID {
-					t.Error("request completed log missing 'request_id' attribute; requestLogger should use context logger")
-				}
+			if r.Message != "request completed" {
+				continue
 			}
+			attrs := make(map[string]any)
+			r.Attrs(func(a slog.Attr) bool {
+				attrs[a.Key] = a.Value.Any()
+				return true
+			})
+			if v, ok := attrs["request_id"]; !ok {
+				t.Error("request completed log record missing 'request_id' attribute; requestLogger should use the context logger enriched by requestID middleware")
+			} else if v != "test-req-id-42" {
+				t.Errorf("request_id = %v; want %q", v, "test-req-id-42")
+			}
+			found = true
+			break
 		}
 		if !found {
 			t.Error("no 'request completed' log record found")
-		}
-	})
-
-	t.Run("logs status 200 when handler calls Write without WriteHeader", func(t *testing.T) {
-		// When a handler calls Write() without explicitly calling WriteHeader(),
-		// Go's net/http implicitly sends 200. The statusWriter should report
-		// 200 (not 0) in the log entry.
-		ch := newCaptureHandler()
-		logger := slog.New(ch)
-
-		inner := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Write([]byte(`{"implicit":true}`))
-		})
-		handler := requestLogger(logger)(inner)
-
-		req := httptest.NewRequest(http.MethodGet, "/implicit-200", nil)
-		rec := httptest.NewRecorder()
-
-		handler.ServeHTTP(rec, req)
-
-		records := ch.getRecords()
-		if len(records) == 0 {
-			t.Fatal("no log records captured")
-		}
-
-		last := records[len(records)-1]
-		attrs := make(map[string]any)
-		last.Attrs(func(a slog.Attr) bool {
-			attrs[a.Key] = a.Value.Any()
-			return true
-		})
-
-		if v, ok := attrs["status"]; !ok {
-			t.Error("log record missing 'status' attribute")
-		} else {
-			var status int64
-			switch s := v.(type) {
-			case int:
-				status = int64(s)
-			case int64:
-				status = s
-			default:
-				t.Fatalf("status attr has unexpected type %T", v)
-			}
-			wantStatus := int64(http.StatusOK)
-			if status != wantStatus {
-				t.Errorf("status = %d; want %d (implicit 200 when Write called without WriteHeader)", status, wantStatus)
-			}
 		}
 	})
 }
@@ -536,6 +496,64 @@ func TestRequestLogger(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Test: full middleware chain
 // ---------------------------------------------------------------------------
+
+// TestHealthProbesBypassMiddleware verifies that health and readiness probes
+// served through NewServer do not pass through the middleware chain. This is
+// important because probes should be fast, dependency-free, and should not
+// produce request logs that drown out real traffic.
+func TestHealthProbesBypassMiddleware(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"health probe bypasses middleware", "/health"},
+		{"readiness probe bypasses middleware", "/ready"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch := newCaptureHandler()
+			logger := slog.New(ch)
+
+			// App mux — no routes needed; we're testing health paths.
+			appMux := http.NewServeMux()
+
+			// Health mux with a simple handler that writes a response.
+			healthMux := http.NewServeMux()
+			healthMux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"status":"ok"}`))
+			})
+			healthMux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"status":"ready"}`))
+			})
+
+			srv := NewServer(ServerConfig{Port: "0"}, appMux, healthMux, logger)
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+
+			srv.httpServer.Handler.ServeHTTP(rec, req)
+
+			// The response should succeed.
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d; want %d", rec.Code, http.StatusOK)
+			}
+
+			// Middleware sets X-Request-ID — its absence proves the probe
+			// bypassed the middleware chain.
+			if got := rec.Header().Get("X-Request-ID"); got != "" {
+				t.Errorf("X-Request-ID = %q; want empty (probe should bypass middleware)", got)
+			}
+
+			// Middleware sets CORS headers — their absence also proves bypass.
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+				t.Errorf("Access-Control-Allow-Origin = %q; want empty (probe should bypass middleware)", got)
+			}
+		})
+	}
+}
 
 func TestMiddlewareChain(t *testing.T) {
 	t.Run("cors -> requestID -> recovery -> logger produces correct headers", func(t *testing.T) {

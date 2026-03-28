@@ -17,12 +17,13 @@ type Config struct {
 	Port            string
 
 	// Indexer-specific
-	RPCURL         string
-	FactoryAddr    string
-	StartBlock     uint64
-	PollInterval   time.Duration
-	BlockBatchSize uint64
-	Confirmations  uint64
+	RPCURL            string
+	FactoryAddr       string
+	StartBlock        uint64
+	PollInterval      time.Duration
+	BlockBatchSize    uint64
+	Confirmations     uint64
+	HeaderConcurrency int
 }
 
 func loadBase() (*Config, error) {
@@ -71,6 +72,12 @@ func loadBase() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	hc, err := parseUint64Env("HEADER_CONCURRENCY", 1)
+	if err != nil {
+		return nil, err
+	}
+	cfg.HeaderConcurrency = int(hc)
 
 	return cfg, nil
 }

@@ -73,9 +73,19 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Write delegates to the underlying ResponseWriter. If WriteHeader has not
+// been called yet, it defaults the captured status to 200 (matching the
+// implicit behavior of net/http).
+func (w *statusWriter) Write(b []byte) (int, error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	return w.ResponseWriter.Write(b)
+}
+
 // requestLogger returns middleware that logs the method, path, status, and
 // duration of each HTTP request after it completes.
-func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
+func requestLogger(_ *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -86,13 +96,8 @@ func requestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 			// Use the request-scoped logger from context (enriched with
 			// request_id by the requestID middleware) so that request
 			// completion logs include the request ID for correlation.
-			// Fall back to the middleware's own logger if no context
-			// logger was set (e.g. when requestID middleware is absent).
-			reqLogger := logger
-			if l, ok := r.Context().Value(loggerKey).(*slog.Logger); ok {
-				reqLogger = l
-			}
-			reqLogger.Info("request completed",
+			ctxLogger := LoggerFromContext(r.Context())
+			ctxLogger.Info("request completed",
 				"method", r.Method,
 				"path", r.URL.Path,
 				"status", sw.status,
