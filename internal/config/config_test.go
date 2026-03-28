@@ -115,6 +115,26 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.StartBlock != 0 {
 		t.Errorf("StartBlock = %d, want 0", cfg.StartBlock)
 	}
+	if cfg.HeaderConcurrency != 1 {
+		t.Errorf("HeaderConcurrency = %d, want 1", cfg.HeaderConcurrency)
+	}
+}
+
+func TestLoad_ParsesHeaderConcurrency(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("CHAIN_ID", "324")
+	t.Setenv("RPC_URL", "https://rpc.example.com")
+	t.Setenv("FACTORY_ADDRESS", "0xfactory")
+	t.Setenv("HEADER_CONCURRENCY", "8")
+
+	cfg, err := LoadIndexer()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.HeaderConcurrency != 8 {
+		t.Errorf("HeaderConcurrency = %d, want 8", cfg.HeaderConcurrency)
+	}
 }
 
 func TestLoad_ParsesPollInterval(t *testing.T) {

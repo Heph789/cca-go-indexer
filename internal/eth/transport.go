@@ -1,7 +1,10 @@
 package eth
 
 import (
-	"math/rand"
+	"bytes"
+	"context"
+	"io"
+	"math/rand/v2"
 	"net/http"
 	"time"
 )
@@ -26,6 +29,16 @@ func newHTTPClientWithRetry(cfg RetryConfig) *http.Client {
 }
 
 func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	var bodyBytes []byte
+	if req.Body != nil {
+		var err error
+		bodyBytes, err = io.ReadAll(req.Body)
+		if err != nil {
+			return nil, err
+		}
+		req.Body.Close()
+	}
+
 	var resp *http.Response
 	var err error
 
@@ -33,7 +46,16 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		if attempt > 0 {
 			delay := t.baseDelay * time.Duration(1<<(attempt-1))
 			jitter := 0.5 + rand.Float64()*0.5 // 0.5 to 1.0
-			time.Sleep(time.Duration(float64(delay) * jitter))
+			if err := sleepWithContext(req.Context(), time.Duration(float64(delay)*jitter)); err != nil {
+				return nil, err
+			}
+		}
+
+		if bodyBytes != nil {
+			req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			req.GetBody = func() (io.ReadCloser, error) {
+				return io.NopCloser(bytes.NewReader(bodyBytes)), nil
+			}
 		}
 
 		resp, err = t.base.RoundTrip(req)
@@ -51,6 +73,17 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	}
 
 	return resp, err
+}
+
+func sleepWithContext(ctx context.Context, d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func isRetryableStatus(code int) bool {

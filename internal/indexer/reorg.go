@@ -41,7 +41,7 @@ func handleReorg(ctx context.Context, logger *slog.Logger, ethClient eth.Client,
 	ancestor := reorgBlock
 	for depth := uint64(0); depth < maxReorgDepth; depth++ {
 		if ancestor == 0 {
-			break
+			break // genesis block is immutable; treat block 0 as a safe ancestor
 		}
 		ancestor--
 
