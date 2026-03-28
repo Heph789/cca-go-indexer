@@ -22,8 +22,6 @@ import (
 type captureHandler struct {
 	mu      sync.Mutex
 	records []slog.Record
-	attrs   []slog.Attr
-	group   string
 }
 
 func newCaptureHandler() *captureHandler {
@@ -39,25 +37,9 @@ func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
 	return nil
 }
 
-func (h *captureHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return &captureHandler{
-		records: h.records,
-		attrs:   append(h.attrs, attrs...),
-		group:   h.group,
-	}
-}
+func (h *captureHandler) WithAttrs(_ []slog.Attr) slog.Handler { return h }
 
-func (h *captureHandler) WithGroup(name string) slog.Handler {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return &captureHandler{
-		records: h.records,
-		attrs:   h.attrs,
-		group:   name,
-	}
-}
+func (h *captureHandler) WithGroup(_ string) slog.Handler { return h }
 
 // getRecords returns a snapshot of captured records.
 func (h *captureHandler) getRecords() []slog.Record {
