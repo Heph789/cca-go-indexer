@@ -368,6 +368,8 @@ func TestRequestLogger(t *testing.T) {
 		handler := requestLogger(logger)(inner)
 
 		req := httptest.NewRequest(http.MethodPost, "/test/path", nil)
+		// Store the logger in context so requestLogger can retrieve it.
+		req = req.WithContext(WithLogger(req.Context(), logger))
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
