@@ -18,20 +18,28 @@ type Server struct {
 }
 
 // NewServer creates a new Server with the middleware chain wired in the order:
-// cors -> requestID -> recovery -> requestLogger -> mux.
-func NewServer(cfg ServerConfig, mux *http.ServeMux, logger *slog.Logger) *Server {
-	handler := cors(
+// cors -> requestID -> recovery -> requestLogger -> appMux.
+// Health probes (healthMux) bypass the middleware chain entirely.
+func NewServer(cfg ServerConfig, appMux *http.ServeMux, healthMux *http.ServeMux, logger *slog.Logger) *Server {
+	middlewareHandler := cors(
 		requestID(logger)(
 			recovery(logger)(
-				requestLogger(logger)(mux),
+				requestLogger(logger)(appMux),
 			),
 		),
 	)
 
+	// Outer mux: health probes are served directly; everything else
+	// goes through the middleware chain.
+	outer := http.NewServeMux()
+	outer.Handle("/health", healthMux)
+	outer.Handle("/ready", healthMux)
+	outer.Handle("/", middlewareHandler)
+
 	return &Server{
 		httpServer: &http.Server{
 			Addr:              net.JoinHostPort("", cfg.Port),
-			Handler:           handler,
+			Handler:           outer,
 			ReadTimeout:       5 * time.Second,
 			ReadHeaderTimeout: 2 * time.Second,
 			WriteTimeout:      10 * time.Second,
