@@ -55,21 +55,6 @@ type BatchEventHandler interface {
 	HandleLogs(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error
 }
 
-// HandleLog dispatches a single log to the handler registered for its topic0.
-// It returns an error if the log has no topics or no handler is registered.
-func (r *HandlerRegistry) HandleLog(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
-	if len(log.Topics) == 0 {
-		return fmt.Errorf("log has no topics")
-	}
-	topic0 := log.Topics[0]
-	handler, ok := r.handlers[topic0]
-	if !ok {
-		r.logger.Warn("skipping log with unregistered topic", "topic", topic0.Hex())
-		return nil
-	}
-	return handler.Handle(ctx, chainID, log, s)
-}
-
 // HandleLogs groups logs by topic0 and dispatches each group to the
 // corresponding handler. Handlers implementing BatchEventHandler receive all
 // their logs in a single call; plain EventHandler implementations fall back to

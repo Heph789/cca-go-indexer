@@ -223,7 +223,7 @@ type mockBatchHandler struct {
 	eventName   string
 	eventID     common.Hash
 	HandleFn    func(ctx context.Context, chainID int64, log types.Log, s store.Store) error
-	HandleLogFn func(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error
+	HandleLogsFn func(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error
 	// calls tracks individual Handle invocations (single-log fallback).
 	calls []types.Log
 	// batchCalls tracks HandleLogs invocations (batch path).
@@ -243,8 +243,8 @@ func (m *mockBatchHandler) Handle(ctx context.Context, chainID int64, log types.
 
 func (m *mockBatchHandler) HandleLogs(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error {
 	m.batchCalls = append(m.batchCalls, logs)
-	if m.HandleLogFn != nil {
-		return m.HandleLogFn(ctx, chainID, logs, s)
+	if m.HandleLogsFn != nil {
+		return m.HandleLogsFn(ctx, chainID, logs, s)
 	}
 	return nil
 }
