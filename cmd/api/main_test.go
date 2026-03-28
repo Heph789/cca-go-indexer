@@ -12,9 +12,7 @@ import (
 	"github.com/cca/go-indexer/internal/store"
 )
 
-// mockStore implements store.Store with no-op methods for testing the run
-// function without a real database. Only Ping and Close are relevant here;
-// repository accessors return nil since the server routes are not exercised.
+// mockStore implements store.Store for testing without a real database.
 type mockStore struct {
 	PingFn  func(ctx context.Context) error
 	CloseFn func()
@@ -61,23 +59,12 @@ func TestRun(t *testing.T) {
 	logger := applog.NewLogger("error", "text")
 
 	tests := []struct {
-		name string
-		// cfg is the API configuration passed to run.
-		cfg *config.Config
-		// setupCtx creates the context and cancel function for the test.
-		// Returns the context, cancel func, and an optional teardown to call
-		// after run returns (e.g., to release a held port).
+		name     string
+		cfg      *config.Config
 		setupCtx func(t *testing.T, cfg *config.Config) (context.Context, context.CancelFunc, func())
-		// st is the store dependency injected into run.
-		st store.Store
-		// wantErr indicates whether run should return a non-nil error.
-		wantErr bool
+		st       store.Store
+		wantErr  bool
 	}{
-		// --- error cases ---
-
-		// When the port is already in use, the HTTP server's ListenAndServe
-		// fails immediately. The run function must propagate that error
-		// instead of calling os.Exit(1).
 		{
 			name: "returns error when port is already in use",
 			cfg: &config.Config{
@@ -101,8 +88,6 @@ func TestRun(t *testing.T) {
 			wantErr: true,
 		},
 
-		// When an invalid/unparseable port is provided, the server should
-		// fail to start and run should return an error.
 		{
 			name: "returns error when port is invalid",
 			cfg: &config.Config{
@@ -117,12 +102,6 @@ func TestRun(t *testing.T) {
 			wantErr: true,
 		},
 
-		// --- happy path ---
-
-		// When the server starts successfully and the context is cancelled
-		// (simulating SIGINT/SIGTERM), run should shut down gracefully and
-		// return nil. This verifies that deferred cleanup runs properly
-		// instead of being skipped by os.Exit.
 		{
 			name: "returns nil on graceful shutdown via context cancel",
 			cfg: &config.Config{
@@ -168,7 +147,6 @@ func TestRun(t *testing.T) {
 func TestRun_DeferredCleanupExecutes(t *testing.T) {
 	logger := applog.NewLogger("error", "text")
 
-	// closeCalled tracks whether the store's Close method was invoked.
 	closeCalled := false
 	st := &mockStore{
 		CloseFn: func() {
@@ -176,7 +154,6 @@ func TestRun_DeferredCleanupExecutes(t *testing.T) {
 		},
 	}
 
-	// Use a context that we cancel immediately so run exits quickly.
 	ctx, cancel := context.WithCancel(context.Background())
 
 	cfg := &config.Config{
@@ -190,14 +167,9 @@ func TestRun_DeferredCleanupExecutes(t *testing.T) {
 		cancel()
 	}()
 
-	// The run function should call st.Close() via defer when it returns.
-	// NOTE: This test assumes run defers st.Close(). If the implementation
-	// does not close the store inside run (leaving it to the caller), this
-	// test documents that expectation and should be updated accordingly.
 	_ = run(ctx, cancel, cfg, logger, st)
 
-	wantClosed := true
-	if closeCalled != wantClosed {
-		t.Errorf("store.Close() called = %v; want %v", closeCalled, wantClosed)
+	if !closeCalled {
+		t.Error("store.Close() was not called; want it called on shutdown")
 	}
 }

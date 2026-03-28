@@ -37,8 +37,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// run owns the server lifecycle and defers st.Close(), so all cleanup
-	// executes even when the server goroutine fails.
 	if err := run(ctx, cancel, cfg, logger, st); err != nil {
 		logger.Error("server exited with error", "error", err)
 		os.Exit(1)
@@ -70,23 +68,17 @@ func run(ctx context.Context, cancel context.CancelFunc, cfg *config.Config, log
 		Port: cfg.Port,
 	}, appMux, healthMux, logger)
 
-	// errCh communicates a server start failure from the goroutine back to
-	// the main flow so we can return it instead of calling os.Exit.
 	errCh := make(chan error, 1)
 
 	go func() {
 		logger.Info("starting api server", "port", cfg.Port)
 		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
-			// Cancel the context so the select below unblocks immediately
-			// rather than waiting for an OS signal that will never arrive.
 			cancel()
 		}
 	}()
 
-	// Wait for either a signal (context cancelled) or a server startup error.
-	// Using select lets us distinguish between a clean shutdown request and a
-	// goroutine failure without any timing assumptions.
+	// Wait for a server error or a shutdown signal (context cancellation).
 	select {
 	case err := <-errCh:
 		return fmt.Errorf("server error: %w", err)
