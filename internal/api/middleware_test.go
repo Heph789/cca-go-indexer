@@ -415,6 +415,64 @@ func TestRequestLogger(t *testing.T) {
 // Test: full middleware chain
 // ---------------------------------------------------------------------------
 
+// TestHealthProbesBypassMiddleware verifies that health and readiness probes
+// served through NewServer do not pass through the middleware chain. This is
+// important because probes should be fast, dependency-free, and should not
+// produce request logs that drown out real traffic.
+func TestHealthProbesBypassMiddleware(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"health probe bypasses middleware", "/health"},
+		{"readiness probe bypasses middleware", "/ready"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ch := newCaptureHandler()
+			logger := slog.New(ch)
+
+			// App mux — no routes needed; we're testing health paths.
+			appMux := http.NewServeMux()
+
+			// Health mux with a simple handler that writes a response.
+			healthMux := http.NewServeMux()
+			healthMux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"status":"ok"}`))
+			})
+			healthMux.HandleFunc("GET /ready", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(`{"status":"ready"}`))
+			})
+
+			srv := NewServer(ServerConfig{Port: "0"}, appMux, healthMux, logger)
+
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			rec := httptest.NewRecorder()
+
+			srv.httpServer.Handler.ServeHTTP(rec, req)
+
+			// The response should succeed.
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d; want %d", rec.Code, http.StatusOK)
+			}
+
+			// Middleware sets X-Request-ID — its absence proves the probe
+			// bypassed the middleware chain.
+			if got := rec.Header().Get("X-Request-ID"); got != "" {
+				t.Errorf("X-Request-ID = %q; want empty (probe should bypass middleware)", got)
+			}
+
+			// Middleware sets CORS headers — their absence also proves bypass.
+			if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
+				t.Errorf("Access-Control-Allow-Origin = %q; want empty (probe should bypass middleware)", got)
+			}
+		})
+	}
+}
+
 func TestMiddlewareChain(t *testing.T) {
 	t.Run("cors -> requestID -> recovery -> logger produces correct headers", func(t *testing.T) {
 		// Verify the full middleware stack works together. The chain order is:
