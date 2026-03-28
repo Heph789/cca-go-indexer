@@ -3,6 +3,9 @@
 # Local dev files
 local_ignored/
 
+# Go build output
+builds/
+
 # Python
 __pycache__/
 
