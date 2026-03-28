@@ -291,46 +291,5 @@ func TestToAuctionResponse(t *testing.T) {
 			t.Errorf("toAuctionResponse() mismatch (-want +got):\n%s", diff)
 		}
 	})
-
-	t.Run("lowercases addresses", func(t *testing.T) {
-		auction := newTestAuction()
-		resp := toAuctionResponse(auction)
-
-		addresses := []struct {
-			name string
-			val  string
-		}{
-			{"AuctionAddress", resp.AuctionAddress},
-			{"Token", resp.Token},
-			{"Currency", resp.Currency},
-			{"TokensRecipient", resp.TokensRecipient},
-			{"FundsRecipient", resp.FundsRecipient},
-			{"ValidationHook", resp.ValidationHook},
-			{"TxHash", resp.TxHash},
-		}
-		for _, a := range addresses {
-			if a.val != strings.ToLower(a.val) {
-				t.Errorf("%s should be lowercase, got %q", a.name, a.val)
-			}
-		}
-	})
-
-	t.Run("converts big.Int to string", func(t *testing.T) {
-		auction := newTestAuction()
-		resp := toAuctionResponse(auction)
-
-		if resp.Amount != auction.Amount.String() {
-			t.Errorf("Amount: expected %q, got %q", auction.Amount.String(), resp.Amount)
-		}
-		if resp.TickSpacing != auction.TickSpacing.String() {
-			t.Errorf("TickSpacing: expected %q, got %q", auction.TickSpacing.String(), resp.TickSpacing)
-		}
-		if resp.FloorPrice != auction.FloorPrice.String() {
-			t.Errorf("FloorPrice: expected %q, got %q", auction.FloorPrice.String(), resp.FloorPrice)
-		}
-		if resp.RequiredCurrencyRaised != auction.RequiredCurrencyRaised.String() {
-			t.Errorf("RequiredCurrencyRaised: expected %q, got %q", auction.RequiredCurrencyRaised.String(), resp.RequiredCurrencyRaised)
-		}
-	})
 }
 
