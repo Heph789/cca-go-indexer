@@ -1,6 +1,7 @@
 package indexer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -980,6 +981,36 @@ func TestHandleLoopError_ReturnsTrueAtMax(t *testing.T) {
 	}
 	if !shouldExit {
 		t.Fatal("expected true when reaching maxLoopRetries")
+	}
+}
+
+func TestHandleLoopError_LogsRetryWhenUnderBudget(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	idx := New(&mockEthClient{}, newMockStore(), NewRegistry(noopLogger()), IndexerConfig{ChainID: 1}, logger)
+	counter := 0
+	idx.handleLoopError(&counter, "test op", fmt.Errorf("boom"))
+	output := buf.String()
+	if !strings.Contains(output, "will retry") {
+		t.Errorf("expected log to contain 'will retry', got: %s", output)
+	}
+	if strings.Contains(output, "exhausted") {
+		t.Errorf("expected log NOT to contain 'exhausted' when under budget, got: %s", output)
+	}
+}
+
+func TestHandleLoopError_LogsExhaustedAtMax(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	idx := New(&mockEthClient{}, newMockStore(), NewRegistry(noopLogger()), IndexerConfig{ChainID: 1}, logger)
+	counter := maxLoopRetries - 1
+	idx.handleLoopError(&counter, "test op", fmt.Errorf("boom"))
+	output := buf.String()
+	if !strings.Contains(output, "exhausted") {
+		t.Errorf("expected log to contain 'exhausted' when at max retries, got: %s", output)
+	}
+	if strings.Contains(output, "will retry") {
+		t.Errorf("expected log NOT to contain 'will retry' when budget exhausted, got: %s", output)
 	}
 }
 
