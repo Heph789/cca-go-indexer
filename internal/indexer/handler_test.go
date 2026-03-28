@@ -1,7 +1,9 @@
 package indexer
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"strings"
 	"testing"
 
@@ -16,7 +18,7 @@ func TestHandlerRegistry_DispatchesToCorrectHandler(t *testing.T) {
 	handlerA := &mockHandler{eventName: "EventA", eventID: idA}
 	handlerB := &mockHandler{eventName: "EventB", eventID: idB}
 
-	registry := NewRegistry(handlerA, handlerB)
+	registry := NewRegistry(noopLogger(), handlerA, handlerB)
 
 	log := types.Log{
 		Topics: []common.Hash{idA},
@@ -43,7 +45,7 @@ func TestHandlerRegistry_TopicFilterReturnsAllEventIDs(t *testing.T) {
 	handlerA := &mockHandler{eventName: "EventA", eventID: idA}
 	handlerB := &mockHandler{eventName: "EventB", eventID: idB}
 
-	registry := NewRegistry(handlerA, handlerB)
+	registry := NewRegistry(noopLogger(), handlerA, handlerB)
 
 	filter := registry.TopicFilter()
 
@@ -70,7 +72,7 @@ func TestHandlerRegistry_TopicFilterReturnsAllEventIDs(t *testing.T) {
 }
 
 func TestHandleLog_ErrorOnNoTopics(t *testing.T) {
-	registry := NewRegistry()
+	registry := NewRegistry(noopLogger())
 
 	log := types.Log{
 		Topics: []common.Hash{},
@@ -86,10 +88,10 @@ func TestHandleLog_ErrorOnNoTopics(t *testing.T) {
 	}
 }
 
-func TestHandleLog_ErrorOnUnregisteredTopic(t *testing.T) {
+func TestHandleLog_NoErrorOnUnregisteredTopic(t *testing.T) {
 	idA := common.HexToHash("0xaaaa")
 	handlerA := &mockHandler{eventName: "EventA", eventID: idA}
-	registry := NewRegistry(handlerA)
+	registry := NewRegistry(noopLogger(), handlerA)
 
 	unknownID := common.HexToHash("0xcccc")
 	log := types.Log{
@@ -98,11 +100,36 @@ func TestHandleLog_ErrorOnUnregisteredTopic(t *testing.T) {
 
 	s := newMockStore()
 	err := registry.HandleLog(context.Background(), 1, log, s)
-	if err == nil {
-		t.Fatal("expected error for unregistered topic")
+	if err != nil {
+		t.Fatalf("expected no error for unregistered topic, got: %v", err)
 	}
-	if !strings.Contains(err.Error(), "no handler") {
-		t.Errorf("expected error to contain 'no handler', got: %v", err)
+}
+
+func TestHandleLog_LogsWarningForUnregisteredTopic(t *testing.T) {
+	idA := common.HexToHash("0xaaaa")
+	handlerA := &mockHandler{eventName: "EventA", eventID: idA}
+
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&buf, nil))
+	registry := NewRegistry(logger, handlerA)
+
+	unknownID := common.HexToHash("0xcccc")
+	log := types.Log{
+		Topics: []common.Hash{unknownID},
+	}
+
+	s := newMockStore()
+	err := registry.HandleLog(context.Background(), 1, log, s)
+	if err != nil {
+		t.Fatalf("expected no error for unregistered topic, got: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "WARN") {
+		t.Errorf("expected log output to contain WARN level, got: %s", output)
+	}
+	if !strings.Contains(output, unknownID.Hex()) {
+		t.Errorf("expected log output to contain unregistered topic hex %s, got: %s", unknownID.Hex(), output)
 	}
 }
 
@@ -118,5 +145,5 @@ func TestNewRegistry_PanicsOnDuplicateEventID(t *testing.T) {
 		}
 	}()
 
-	NewRegistry(h1, h2)
+	NewRegistry(noopLogger(), h1, h2)
 }
