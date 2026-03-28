@@ -118,6 +118,30 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			}
 		}
 
+		// Reorg detection
+		reorged, err := detectReorg(ctx, idx.ethClient, idx.store.BlockRepo(), idx.config.ChainID, cursor)
+		if err != nil {
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "detect reorg", err); shouldExit {
+				return fmt.Errorf("detect reorg at block %d (after %d retries): %w", cursor, maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
+		}
+
+		if reorged {
+			ancestor, err := handleReorg(ctx, idx.logger, idx.ethClient, idx.store, idx.config.ChainID, cursor)
+			if err != nil {
+				return fmt.Errorf("handle reorg: %w", err)
+			}
+			cursor = ancestor
+			consecutiveErrors = 0
+			continue
+		}
+
 		from := cursor + 1
 		to := min(cursor+idx.config.BlockBatchSize, safeHead)
 
