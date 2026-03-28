@@ -118,6 +118,12 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.HeaderConcurrency != 1 {
 		t.Errorf("HeaderConcurrency = %d, want 1", cfg.HeaderConcurrency)
 	}
+	if cfg.RetryMaxRetries != 5 {
+		t.Errorf("RetryMaxRetries = %d, want 5", cfg.RetryMaxRetries)
+	}
+	if cfg.RetryBaseDelay != 500*time.Millisecond {
+		t.Errorf("RetryBaseDelay = %v, want %v", cfg.RetryBaseDelay, 500*time.Millisecond)
+	}
 }
 
 func TestLoad_ParsesHeaderConcurrency(t *testing.T) {
@@ -180,6 +186,27 @@ func TestLoad_DatabaseReadURLExplicit(t *testing.T) {
 
 	if cfg.DatabaseReadURL != "postgres://localhost/test-read" {
 		t.Errorf("DatabaseReadURL = %q, want %q", cfg.DatabaseReadURL, "postgres://localhost/test-read")
+	}
+}
+
+func TestLoad_ParsesRetryConfig(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("CHAIN_ID", "324")
+	t.Setenv("RPC_URL", "https://rpc.example.com")
+	t.Setenv("FACTORY_ADDRESS", "0xfactory")
+	t.Setenv("RETRY_MAX_RETRIES", "10")
+	t.Setenv("RETRY_BASE_DELAY", "1s")
+
+	cfg, err := LoadIndexer()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.RetryMaxRetries != 10 {
+		t.Errorf("RetryMaxRetries = %d, want 10", cfg.RetryMaxRetries)
+	}
+	if cfg.RetryBaseDelay != 1*time.Second {
+		t.Errorf("RetryBaseDelay = %v, want %v", cfg.RetryBaseDelay, 1*time.Second)
 	}
 }
 
