@@ -1,8 +1,12 @@
 module github.com/cca/go-indexer
 
-go 1.22.0
+go 1.25.0
 
-require github.com/ethereum/go-ethereum v1.14.12
+require (
+	github.com/ethereum/go-ethereum v1.14.12
+	github.com/golang-migrate/migrate/v4 v4.19.1
+	github.com/jackc/pgx/v5 v5.9.1
+)
 
 require (
 	github.com/bits-and-blooms/bitset v1.13.0 // indirect
@@ -15,10 +19,15 @@ require (
 	github.com/ethereum/go-verkle v0.1.1-0.20240829091221-dffa7562dbe9 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/holiman/uint256 v1.3.1 // indirect
+	github.com/jackc/pgpassfile v1.0.0 // indirect
+	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
+	github.com/jackc/puddle/v2 v2.2.2 // indirect
+	github.com/lib/pq v1.10.9 // indirect
 	github.com/mmcloughlin/addchain v0.4.0 // indirect
 	github.com/supranational/blst v0.3.13 // indirect
-	golang.org/x/crypto v0.22.0 // indirect
-	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.22.0 // indirect
+	golang.org/x/crypto v0.45.0 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/text v0.31.0 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
