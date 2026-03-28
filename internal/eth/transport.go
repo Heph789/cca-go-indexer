@@ -3,8 +3,11 @@ package eth
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"errors"
 	"io"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"time"
 )
@@ -60,6 +63,9 @@ func (t *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 
 		resp, err = t.base.RoundTrip(req)
 		if err != nil {
+			if !isRetryableError(err) {
+				return nil, err
+			}
 			continue
 		}
 
@@ -84,6 +90,29 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func isRetryableError(err error) bool {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return false
+	}
+
+	var tlsRecordErr tls.RecordHeaderError
+	if errors.As(err, &tlsRecordErr) {
+		return false
+	}
+
+	var certErr *tls.CertificateVerificationError
+	if errors.As(err, &certErr) {
+		return false
+	}
+
+	return true
 }
 
 func isRetryableStatus(code int) bool {
