@@ -1,0 +1,12 @@
+.claude/scheduled_tasks.lock
+
+# Local dev files
+local_ignored/
+
+# Python
+__pycache__/
+
+# Foundry artifacts
+simulate/chain/out/
+simulate/chain/cache/
+simulate/chain/broadcast/
