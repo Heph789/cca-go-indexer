@@ -2,8 +2,10 @@ package eth
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -353,6 +355,134 @@ func TestRetryTransport_RespectsContextCancellation(t *testing.T) {
 	}
 	if elapsed > 1*time.Second {
 		t.Errorf("expected fast return on context cancellation, took %v", elapsed)
+	}
+}
+
+// temporaryNetError implements net.Error with Temporary() == true.
+type temporaryNetError struct {
+	msg string
+}
+
+func (e *temporaryNetError) Error() string   { return e.msg }
+func (e *temporaryNetError) Timeout() bool   { return false }
+func (e *temporaryNetError) Temporary() bool { return true }
+
+// Verify it satisfies net.Error at compile time.
+var _ net.Error = (*temporaryNetError)(nil)
+
+func TestRetryTransport_RetriesOnTemporaryNetworkError(t *testing.T) {
+	mock := &mockRoundTripper{
+		responses: []*http.Response{
+			nil,
+			nil,
+			makeResponse(200),
+		},
+		errors: []error{
+			&temporaryNetError{msg: "connection refused"},
+			&temporaryNetError{msg: "connection refused"},
+			nil,
+		},
+	}
+
+	transport := &retryTransport{
+		base:       mock,
+		maxRetries: 3,
+		baseDelay:  1 * time.Millisecond,
+	}
+
+	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	resp, err := transport.RoundTrip(req)
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+	if mock.calls != 3 {
+		t.Errorf("expected 3 calls, got %d", mock.calls)
+	}
+}
+
+func TestRetryTransport_NoRetryOnDNSError(t *testing.T) {
+	dnsErr := &net.DNSError{
+		Err:        "no such host",
+		Name:       "bad.example.com",
+		IsNotFound: true,
+	}
+
+	mock := &mockRoundTripper{
+		responses: []*http.Response{nil},
+		errors:    []error{dnsErr},
+	}
+
+	transport := &retryTransport{
+		base:       mock,
+		maxRetries: 3,
+		baseDelay:  1 * time.Millisecond,
+	}
+
+	req, _ := http.NewRequest("GET", "http://bad.example.com", nil)
+	_, err := transport.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if mock.calls != 1 {
+		t.Errorf("expected 1 call (no retry on DNS error), got %d", mock.calls)
+	}
+}
+
+func TestRetryTransport_NoRetryOnTLSError(t *testing.T) {
+	tlsErr := tls.RecordHeaderError{
+		Msg: "tls: first record does not look like a TLS handshake",
+	}
+
+	mock := &mockRoundTripper{
+		responses: []*http.Response{nil},
+		errors:    []error{tlsErr},
+	}
+
+	transport := &retryTransport{
+		base:       mock,
+		maxRetries: 3,
+		baseDelay:  1 * time.Millisecond,
+	}
+
+	req, _ := http.NewRequest("GET", "https://example.com", nil)
+	_, err := transport.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if mock.calls != 1 {
+		t.Errorf("expected 1 call (no retry on TLS error), got %d", mock.calls)
+	}
+}
+
+func TestRetryTransport_NoRetryOnContextCancellation(t *testing.T) {
+	// The base transport returns context.Canceled but we use a live (non-cancelled)
+	// context so the retry-loop's sleepWithContext won't catch it. Without error
+	// discrimination the transport will keep retrying; correct behaviour is to
+	// return immediately after the first call.
+	mock := &mockRoundTripper{
+		responses: []*http.Response{nil, nil, nil, nil},
+		errors:    []error{context.Canceled, context.Canceled, context.Canceled, context.Canceled},
+	}
+
+	transport := &retryTransport{
+		base:       mock,
+		maxRetries: 3,
+		baseDelay:  1 * time.Millisecond,
+	}
+
+	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	_, err := transport.RoundTrip(req)
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if err != context.Canceled {
+		t.Errorf("expected context.Canceled, got: %v", err)
+	}
+	if mock.calls != 1 {
+		t.Errorf("expected 1 call (no retry on context cancellation), got %d", mock.calls)
 	}
 }
 
