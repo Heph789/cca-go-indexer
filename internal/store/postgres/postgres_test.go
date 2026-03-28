@@ -196,25 +196,20 @@ func TestNew_SetsIdleInTransactionSessionTimeout(t *testing.T) {
 	ps := s.(*pgStore)
 	ctx := context.Background()
 
-	// wantTimeout is the value we expect idle_in_transaction_session_timeout
-	// to be set to by the AfterConnect callback. Postgres reports this as "30s".
-	wantTimeout := "30s"
-
 	conn, err := ps.pool.Acquire(ctx)
 	if err != nil {
 		t.Fatalf("Acquire connection: %v", err)
 	}
 	defer conn.Release()
 
-	// Query the session-level setting to confirm AfterConnect applied it.
 	var got string
 	err = conn.QueryRow(ctx, "SHOW idle_in_transaction_session_timeout").Scan(&got)
 	if err != nil {
 		t.Fatalf("SHOW idle_in_transaction_session_timeout: %v", err)
 	}
 
-	if got != wantTimeout {
-		t.Errorf("idle_in_transaction_session_timeout = %q, want %q", got, wantTimeout)
+	if got != idleInTxTimeout {
+		t.Errorf("idle_in_transaction_session_timeout = %q, want %q", got, idleInTxTimeout)
 	}
 }
 
@@ -227,13 +222,8 @@ func TestNew_IdleInTransactionTimeout_ConsistentAcrossConnections(t *testing.T) 
 	ps := s.(*pgStore)
 	ctx := context.Background()
 
-	// wantTimeout is the expected value for every pooled connection.
-	wantTimeout := "30s"
-
-	// numConns is the number of distinct connections to check. We acquire
-	// multiple connections simultaneously to force the pool to create new ones.
+	// Acquire multiple connections simultaneously to force the pool to create new ones.
 	numConns := 3
-
 	conns := make([]*pgxpool.Conn, 0, numConns)
 	defer func() {
 		for _, c := range conns {
@@ -241,7 +231,6 @@ func TestNew_IdleInTransactionTimeout_ConsistentAcrossConnections(t *testing.T) 
 		}
 	}()
 
-	// Acquire several connections at once so the pool must open new ones.
 	for i := range numConns {
 		c, err := ps.pool.Acquire(ctx)
 		if err != nil {
@@ -257,8 +246,8 @@ func TestNew_IdleInTransactionTimeout_ConsistentAcrossConnections(t *testing.T) 
 		if err != nil {
 			t.Fatalf("SHOW on connection %d: %v", i, err)
 		}
-		if got != wantTimeout {
-			t.Errorf("connection %d: idle_in_transaction_session_timeout = %q, want %q", i, got, wantTimeout)
+		if got != idleInTxTimeout {
+			t.Errorf("connection %d: idle_in_transaction_session_timeout = %q, want %q", i, got, idleInTxTimeout)
 		}
 	}
 }
