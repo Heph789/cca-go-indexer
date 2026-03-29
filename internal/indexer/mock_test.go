@@ -214,3 +214,37 @@ func (m *mockHandler) Handle(ctx context.Context, chainID int64, log types.Log, 
 	}
 	return nil
 }
+
+// --- mockBatchHandler ---
+// mockBatchHandler implements both EventHandler and BatchEventHandler so tests
+// can verify that HandleLogs dispatches to the batch path when available.
+
+type mockBatchHandler struct {
+	eventName    string
+	eventID      common.Hash
+	HandleFn     func(ctx context.Context, chainID int64, log types.Log, s store.Store) error
+	HandleLogsFn func(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error
+	// calls tracks individual Handle invocations (single-log fallback).
+	calls []types.Log
+	// batchCalls tracks HandleLogs invocations (batch path).
+	batchCalls [][]types.Log
+}
+
+func (m *mockBatchHandler) EventName() string    { return m.eventName }
+func (m *mockBatchHandler) EventID() common.Hash { return m.eventID }
+
+func (m *mockBatchHandler) Handle(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
+	m.calls = append(m.calls, log)
+	if m.HandleFn != nil {
+		return m.HandleFn(ctx, chainID, log, s)
+	}
+	return nil
+}
+
+func (m *mockBatchHandler) HandleLogs(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error {
+	m.batchCalls = append(m.batchCalls, logs)
+	if m.HandleLogsFn != nil {
+		return m.HandleLogsFn(ctx, chainID, logs, s)
+	}
+	return nil
+}
