@@ -220,9 +220,9 @@ func (m *mockHandler) Handle(ctx context.Context, chainID int64, log types.Log, 
 // can verify that HandleLogs dispatches to the batch path when available.
 
 type mockBatchHandler struct {
-	eventName   string
-	eventID     common.Hash
-	HandleFn    func(ctx context.Context, chainID int64, log types.Log, s store.Store) error
+	eventName    string
+	eventID      common.Hash
+	HandleFn     func(ctx context.Context, chainID int64, log types.Log, s store.Store) error
 	HandleLogsFn func(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error
 	// calls tracks individual Handle invocations (single-log fallback).
 	calls []types.Log
