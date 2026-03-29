@@ -52,21 +52,6 @@ func (r *HandlerRegistry) TopicFilter() [][]common.Hash {
 	return [][]common.Hash{topics}
 }
 
-// HandleLog dispatches a single log to the handler registered for its topic0.
-// It returns an error if the log has no topics or no handler is registered.
-func (r *HandlerRegistry) HandleLog(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
-	if len(log.Topics) == 0 {
-		return ErrNoTopics
-	}
-	topic0 := log.Topics[0]
-	handler, ok := r.handlers[topic0]
-	if !ok {
-		r.logger.Warn("skipping log with unregistered topic", "topic", topic0.Hex())
-		return nil
-	}
-	return handler.Handle(ctx, chainID, log, s)
-}
-
 // BatchEventHandler extends EventHandler with batch dispatch. Handlers that
 // implement this interface receive all matching logs in a single HandleLogs
 // call instead of individual Handle calls, enabling batch store operations.
