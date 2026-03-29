@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/cca/go-indexer/internal/eth"
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
@@ -30,6 +31,9 @@ type Config struct {
 }
 
 func loadBase() (*Config, error) {
+	// Load .env file if present; no error if missing.
+	_ = godotenv.Load()
+
 	cfg := &Config{}
 
 	cfg.DatabaseURL = os.Getenv("DATABASE_URL")

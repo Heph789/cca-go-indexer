@@ -2,6 +2,7 @@
 
 # Local dev files
 local_ignored/
+.env
 
 # Go build output
 builds/
