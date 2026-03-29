@@ -12,9 +12,10 @@ Walk the PR stack for the given parent issue (`$ARGUMENTS`) and run the full rev
 
 ### 1. Build the PR List
 
-1. Fetch the parent issue's sub-issue list in order.
-2. For each sub-issue, check if it has an open or draft PR.
-3. Build an ordered list of PRs from bottom of stack to top.
+1. Fetch the parent issue and identify the **parent feature branch** (from the issue body's `## Branch name` section). This is the merge target for all PRs in the stack.
+2. Fetch the parent issue's sub-issue list in order.
+3. For each sub-issue, check if it has an open or draft PR.
+4. Build an ordered list of PRs from bottom of stack to top.
 
 ### 2. Walk the Stack Bottom-Up
 
@@ -38,11 +39,27 @@ If the triage doc has items under "Sub-Issues to Defer" or "Standalone Issues", 
 
 #### d. Fix — `/fix-pr-issues <triage-doc>`
 
-If the triage doc has items under "Issues to Fix in This PR", run the fix-pr-issues skill. This implements each fix with TDD, pushes, and replies to the review notes.
+If the triage doc has items under "Issues to Fix in This PR", run the fix-pr-issues skill. This implements each fix with TDD, restacks downstream branches, and replies to the review notes.
 
-#### e. Merge
+#### e. Retarget and Merge
 
-After fixes are pushed, merge the PR using the git skill rules (regular merge for stacked branches, squash merge for main).
+Before merging, retarget the PR's base branch to the **parent feature branch** (the branch for the parent issue, e.g., `indexer-api-happy-1`). Earlier merges in the stack will have already landed on this branch, so the PR's original base (the previous issue's branch) is stale.
+
+```bash
+gh pr edit <PR_NUMBER> --base <parent-feature-branch>
+```
+
+Then merge with regular merge (NOT squash — squash is only for merging into main):
+
+```bash
+gh pr merge <PR_NUMBER> --merge
+```
+
+After merging, restack downstream branches to pick up the changes:
+
+```bash
+gt stack restack
+```
 
 Close the linked issue after merge:
 
