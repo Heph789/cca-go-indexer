@@ -22,6 +22,11 @@ Draft the issue using the project's standard format. Show it to the user for con
 
 Create the issue using `gh issue create` with `--title`, `--body`, and `--label`. Pass the body via HEREDOC.
 
+## Branch Name Convention
+
+- **Parent (top-level) issues:** `<short-name>-<number>` (e.g., `indexer-api-1`, `batch-processor-2`)
+- **Sub-issues:** `<parent-branch>-/<sub-issue-name>` (e.g., `indexer-api-1-/rpc-client`, `indexer-api-1-/block-parser`)
+
 ## Issue Body Format
 
 ```markdown
@@ -31,7 +36,7 @@ Create the issue using `gh issue create` with `--title`, `--body`, and `--label`
 <what needs to be built and why>
 
 ## Branch name
-`<parent-branch>-/<issue-name>-<version>`
+`<branch-name>`
 
 ## Scaffold
 <scaffold branch and relevant files, or "None">

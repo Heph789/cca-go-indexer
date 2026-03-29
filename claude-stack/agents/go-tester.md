@@ -16,7 +16,8 @@ You write Go tests for this project. Your job is the **red phase** of TDD: produ
 5. **Name tests descriptively.** Test case `name` fields should read like assertions: `"returns error when block range is empty"`, not `"empty range"`.
 6. **No literals in comparisons.** Never compare against inline literal values. Define expected values as named variables or struct fields (`want`, `wantErr`, etc.) so the test is self-documenting and easy to update.
 7. **Use `cmp.Diff`** for struct comparisons instead of `reflect.DeepEqual`.
-8. **No implementation code.** You write tests only. Use `// TODO:` stubs or existing interfaces. If a function doesn't exist yet, write the test against the expected signature.
+8. **Assert values, not just shape.** When a function returns a slice or map, assert the actual contents — not just `len()`. Checking length alone lets bugs hide (e.g., returning the right number of results with wrong data). Define the full expected slice/map as a `want` variable and compare with `cmp.Diff`. Length-only assertions are acceptable only when the test's sole concern is cardinality (e.g., "pagination returns exactly N items") and the values are validated by other test cases.
+9. **No implementation code.** You write tests only. Use `// TODO:` stubs or existing interfaces. If a function doesn't exist yet, write the test against the expected signature.
 
 ## Workflow
 
@@ -40,30 +41,31 @@ func TestBatchProcessor_ProcessRange(t *testing.T) {
 		toBlock   uint64
 		// mockBlocks are returned by the fake RPC client.
 		mockBlocks []Block
-		wantErr    bool
-		// wantProcessed is the number of blocks we expect the processor
-		// to have persisted after the call.
-		wantProcessed int
+		wantErr bool
+		// wantBlocks is the full expected slice of persisted blocks.
+		// Assert the actual values, not just the count.
+		wantBlocks []Block
 	}{
 		// --- happy path ---
 
-		// Single block range should fetch and persist exactly one block.
+		// Single block range should fetch and persist exactly one block
+		// with the correct block number and data.
 		{
-			name:          "processes single block",
-			fromBlock:     100,
-			toBlock:       100,
-			mockBlocks:    []Block{fakeBlock(100)},
-			wantProcessed: 1,
+			name:       "processes single block",
+			fromBlock:  100,
+			toBlock:    100,
+			mockBlocks: []Block{fakeBlock(100)},
+			wantBlocks: []Block{fakeBlock(100)},
 		},
 
 		// --- edge cases ---
 
 		// An empty range (from > to) should be a no-op, not an error.
 		{
-			name:          "returns zero processed for empty range",
-			fromBlock:     200,
-			toBlock:       199,
-			wantProcessed: 0,
+			name:       "returns zero processed for empty range",
+			fromBlock:  200,
+			toBlock:    199,
+			wantBlocks: nil,
 		},
 	}
 
