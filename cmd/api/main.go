@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/cca/go-indexer/internal/api/handlers"
 	"github.com/cca/go-indexer/internal/config"
 	applog "github.com/cca/go-indexer/internal/log"
+	"github.com/cca/go-indexer/internal/store"
 	"github.com/cca/go-indexer/internal/store/postgres"
 )
 
@@ -34,6 +36,17 @@ func main() {
 		logger.Error("connecting to database", "error", err)
 		os.Exit(1)
 	}
+
+	if err := run(ctx, cancel, cfg, logger, st); err != nil {
+		logger.Error("server exited with error", "error", err)
+		os.Exit(1)
+	}
+}
+
+// run encapsulates the API server lifecycle so that deferred cleanup (e.g.
+// closing the store) always executes, even when the server goroutine fails.
+// Errors are returned to the caller instead of calling os.Exit directly.
+func run(ctx context.Context, cancel context.CancelFunc, cfg *config.Config, logger *slog.Logger, st store.Store) error {
 	defer st.Close()
 
 	auctionHandler := &handlers.AuctionHandler{Store: st, ChainID: cfg.ChainID}
@@ -51,26 +64,36 @@ func main() {
 	healthMux.HandleFunc("GET /ready", healthHandler.Ready)
 
 	srv := api.NewServer(api.ServerConfig{
+		Host: cfg.Host,
 		Port: cfg.Port,
 	}, appMux, healthMux, logger)
+
+	errCh := make(chan error, 1)
 
 	go func() {
 		logger.Info("starting api server", "port", cfg.Port)
 		if err := srv.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("server error", "error", err)
-			os.Exit(1)
+			errCh <- err
+			cancel()
 		}
 	}()
 
-	<-ctx.Done()
+	// Wait for a server error or a shutdown signal (context cancellation).
+	select {
+	case err := <-errCh:
+		return fmt.Errorf("server error: %w", err)
+	case <-ctx.Done():
+	}
+
 	logger.Info("shutting down api server")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		logger.Error("shutdown error", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("shutdown error: %w", err)
 	}
+
 	logger.Info("api server stopped gracefully")
+	return nil
 }
