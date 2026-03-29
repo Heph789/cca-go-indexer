@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -10,6 +11,10 @@ import (
 
 	"github.com/cca/go-indexer/internal/store"
 )
+
+// ErrNoTopics is returned when a log has no topics, making it impossible
+// to determine which handler should process it.
+var ErrNoTopics = errors.New("log has no topics")
 
 // EventHandler processes a specific on-chain event type identified by its topic0 hash.
 type EventHandler interface {
@@ -74,7 +79,7 @@ func (r *HandlerRegistry) HandleLogs(ctx context.Context, chainID int64, logs []
 
 	for _, l := range logs {
 		if len(l.Topics) == 0 {
-			return fmt.Errorf("log has no topics")
+			return ErrNoTopics
 		}
 		topic0 := l.Topics[0]
 		idx, exists := orderIndex[topic0]
