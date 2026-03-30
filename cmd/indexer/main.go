@@ -43,7 +43,11 @@ func main() {
 	}
 	defer ethClient.Close()
 
-	registry := indexer.NewRegistry(logger, &handlers.AuctionCreatedHandler{}, &handlers.CheckpointUpdatedHandler{})
+	registry := indexer.NewRegistry(logger,
+		&handlers.AuctionCreatedHandler{},
+		&handlers.BidSubmittedHandler{},
+		&handlers.CheckpointUpdatedHandler{},
+	)
 
 	idxConfig := indexer.IndexerConfig{
 		ChainID:           cfg.ChainID,

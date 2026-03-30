@@ -325,6 +325,62 @@ func TestRun_GraphQLIntrospectionReturnsSchema(t *testing.T) {
 	<-errCh
 }
 
+// TestRun_GraphQLBidHintQueryAvailable verifies that the bidHint query is
+// exposed in the GraphQL schema via introspection.
+func TestRun_GraphQLBidHintQueryAvailable(t *testing.T) {
+	logger := applog.NewLogger("error", "text")
+	port := freePort(t)
+	cfg := &config.Config{
+		Port:    port,
+		ChainID: 1,
+	}
+	st := &mockStore{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cancel, cfg, logger, st)
+	}()
+
+	baseURL := "http://127.0.0.1:" + port
+	waitForServer(t, baseURL+"/health", 2*time.Second)
+
+	query := `{"query": "{ __schema { queryType { fields { name } } } }"}`
+	resp, err := http.Post(baseURL+"/graphql", "application/json", strings.NewReader(query))
+	if err != nil {
+		t.Fatalf("POST /graphql failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Traverse data.__schema.queryType.fields to find "bidHint".
+	data := result["data"].(map[string]any)
+	schema := data["__schema"].(map[string]any)
+	queryType := schema["queryType"].(map[string]any)
+	fields := queryType["fields"].([]any)
+
+	found := false
+	for _, f := range fields {
+		field := f.(map[string]any)
+		if field["name"] == "bidHint" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("bidHint query not found in GraphQL schema introspection")
+	}
+
+	cancel()
+	<-errCh
+}
+
 // waitForServer polls the given URL until it gets a 200 response or the
 // timeout expires. Used to wait for the test server to be ready.
 func waitForServer(t *testing.T, url string, timeout time.Duration) {
