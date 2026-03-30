@@ -9,9 +9,11 @@ import (
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core/types"
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/cca/go-indexer/internal/domain/cca"
 	"github.com/cca/go-indexer/internal/eth"
 	"github.com/cca/go-indexer/internal/store"
 )
@@ -271,5 +273,85 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 
 		cursor = to
 		consecutiveErrors = 0
+
+		if err := idx.backfillContracts(ctx, cursor); err != nil {
+			idx.logger.Warn("backfill pass", "error", err)
+		}
 	}
+}
+
+// backfillContracts processes one batch of historical blocks for each contract
+// that is behind the global cursor. It yields after one batch per contract so
+// forward polling is not blocked.
+func (idx *ChainIndexer) backfillContracts(ctx context.Context, globalCursor uint64) error {
+	contracts, err := idx.store.WatchedContractRepo().ListNeedingBackfill(ctx, idx.config.ChainID, globalCursor)
+	if err != nil {
+		return fmt.Errorf("listing contracts for backfill: %w", err)
+	}
+
+	for _, contract := range contracts {
+		if err := idx.backfillContract(ctx, contract, globalCursor); err != nil {
+			idx.logger.Warn("backfill contract",
+				"error", err,
+				"address", contract.Address.Hex(),
+			)
+		}
+	}
+	return nil
+}
+
+func (idx *ChainIndexer) backfillContract(ctx context.Context, contract *cca.WatchedContract, globalCursor uint64) error {
+	backfillFrom := contract.LastIndexedBlock + 1
+	if contract.LastIndexedBlock == 0 {
+		backfillFrom = contract.StartBlock
+	}
+	backfillTo := min(backfillFrom+idx.config.BlockBatchSize-1, globalCursor)
+
+	idx.logger.Info("backfilling contract",
+		"address", contract.Address.Hex(),
+		"from", backfillFrom,
+		"to", backfillTo,
+	)
+
+	bfLogs, err := idx.ethClient.FilterLogs(ctx, ethereum.FilterQuery{
+		FromBlock: new(big.Int).SetUint64(backfillFrom),
+		ToBlock:   new(big.Int).SetUint64(backfillTo),
+		Addresses: []common.Address{contract.Address},
+		Topics:    idx.registry.TopicFilter(),
+	})
+	if err != nil {
+		return fmt.Errorf("filter logs: %w", err)
+	}
+
+	blockTimes, err := idx.fetchBlockTimesForLogs(ctx, bfLogs)
+	if err != nil {
+		return fmt.Errorf("fetch block times: %w", err)
+	}
+
+	return idx.store.WithTx(ctx, func(txStore store.Store) error {
+		if err := idx.registry.HandleLogs(ctx, idx.config.ChainID, bfLogs, blockTimes, txStore); err != nil {
+			return fmt.Errorf("handling backfill logs: %w", err)
+		}
+		if err := txStore.WatchedContractRepo().UpdateLastIndexedBlock(ctx, idx.config.ChainID, contract.Address, backfillTo); err != nil {
+			return fmt.Errorf("updating backfill cursor for %s: %w", contract.Address.Hex(), err)
+		}
+		return nil
+	})
+}
+
+// fetchBlockTimesForLogs retrieves the timestamp for each unique block
+// referenced in the given logs.
+func (idx *ChainIndexer) fetchBlockTimesForLogs(ctx context.Context, logs []types.Log) (map[uint64]time.Time, error) {
+	blockTimes := make(map[uint64]time.Time)
+	for _, l := range logs {
+		if _, ok := blockTimes[l.BlockNumber]; ok {
+			continue
+		}
+		header, err := idx.ethClient.HeaderByNumber(ctx, new(big.Int).SetUint64(l.BlockNumber))
+		if err != nil {
+			return nil, fmt.Errorf("header for block %d: %w", l.BlockNumber, err)
+		}
+		blockTimes[l.BlockNumber] = time.Unix(int64(header.Time), 0).UTC()
+	}
+	return blockTimes, nil
 }

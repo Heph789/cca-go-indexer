@@ -16,7 +16,9 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 
+	"github.com/cca/go-indexer/internal/domain/cca"
 	"github.com/cca/go-indexer/internal/store"
+	"github.com/google/go-cmp/cmp"
 )
 
 func noopLogger() *slog.Logger {
@@ -1776,3 +1778,440 @@ func TestIndexer_ReorgRollsBackWatchedContractCursors(t *testing.T) {
 			wantRollbackFrom, rollbackCursorsFrom)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Inline backfill tests
+// ---------------------------------------------------------------------------
+
+// setupBackfillTest configures the common mocks needed for a backfill test:
+// cursor at initialCursor, chain head at 200, no-op headers and cursor upsert.
+// Returns the ethClient, store, and a cancel func (with 500ms timeout).
+func setupBackfillTest(t *testing.T, initialCursor uint64) (*mockEthClient, *mockStore, context.Context, context.CancelFunc) {
+	t.Helper()
+
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(_ context.Context, _ int64) (uint64, common.Hash, error) {
+		return initialCursor, common.HexToHash("0xabc"), nil
+	}
+	ethClient.BlockNumberFn = func(_ context.Context) (uint64, error) {
+		return 200, nil
+	}
+	ethClient.HeaderByNumberFn = func(_ context.Context, _ *big.Int) (*types.Header, error) {
+		return &types.Header{ParentHash: common.HexToHash("0xparent")}, nil
+	}
+	ethClient.FilterLogsFn = func(_ context.Context, _ ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+	s.cursorRepo.UpsertFn = func(_ context.Context, _ int64, _ uint64, _ common.Hash) error {
+		return nil
+	}
+	s.watchedContractRepo.UpdateLastIndexedBlockFn = func(_ context.Context, _ int64, _ common.Address, _ uint64) error {
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	t.Cleanup(cancel)
+	return ethClient, s, ctx, cancel
+}
+
+func backfillIndexerConfig() IndexerConfig {
+	return IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: 10,
+		PollInterval:   5 * time.Millisecond,
+	}
+}
+
+// TestIndexer_BackfillCallsListNeedingBackfill verifies that after the forward
+// batch completes, the indexer queries for contracts needing backfill.
+func TestIndexer_BackfillCallsListNeedingBackfill(t *testing.T) {
+	ethClient, s, ctx, cancel := setupBackfillTest(t, 100)
+
+	listNeedingBackfillCalled := false
+	var capturedGlobalCursor uint64
+
+	s.watchedContractRepo.ListNeedingBackfillFn = func(_ context.Context, _ int64, globalCursor uint64) ([]*cca.WatchedContract, error) {
+		listNeedingBackfillCalled = true
+		capturedGlobalCursor = globalCursor
+		cancel()
+		return nil, nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, backfillIndexerConfig())
+
+	_ = idx.Run(ctx)
+
+	if !listNeedingBackfillCalled {
+		t.Fatal("expected ListNeedingBackfill to be called after forward batch")
+	}
+
+	wantCursor := uint64(110)
+	if capturedGlobalCursor != wantCursor {
+		t.Errorf("expected ListNeedingBackfill called with globalCursor=%d, got %d",
+			wantCursor, capturedGlobalCursor)
+	}
+}
+
+// TestIndexer_BackfillFilterLogsForBehindContract verifies that when a watched
+// contract is behind the global cursor, the indexer calls FilterLogs with the
+// contract's address for the range [lastIndexedBlock+1, batchEnd].
+func TestIndexer_BackfillFilterLogsForBehindContract(t *testing.T) {
+	ethClient, s, ctx, cancel := setupBackfillTest(t, 100)
+
+	behindAddr := common.HexToAddress("0xBBBB")
+	s.watchedContractRepo.ListNeedingBackfillFn = func(_ context.Context, _ int64, _ uint64) ([]*cca.WatchedContract, error) {
+		return []*cca.WatchedContract{{
+			Address:          behindAddr,
+			ChainID:          1,
+			StartBlock:       10,
+			LastIndexedBlock: 50,
+		}}, nil
+	}
+
+	var mu sync.Mutex
+	var filterLogsCalls []ethereum.FilterQuery
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		mu.Lock()
+		filterLogsCalls = append(filterLogsCalls, q)
+		n := len(filterLogsCalls)
+		mu.Unlock()
+
+		if n >= 2 {
+			cancel()
+		}
+		return nil, nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, backfillIndexerConfig())
+
+	_ = idx.Run(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(filterLogsCalls) < 2 {
+		t.Fatalf("expected at least 2 FilterLogs calls (forward + backfill), got %d", len(filterLogsCalls))
+	}
+
+	backfillQuery := filterLogsCalls[1]
+
+	wantFrom := uint64(51)
+	wantTo := uint64(60)
+	if backfillQuery.FromBlock == nil {
+		t.Fatal("expected backfill FilterLogs FromBlock to be set")
+	}
+	if backfillQuery.FromBlock.Uint64() != wantFrom {
+		t.Errorf("expected backfill FromBlock=%d, got %d", wantFrom, backfillQuery.FromBlock.Uint64())
+	}
+	if backfillQuery.ToBlock == nil {
+		t.Fatal("expected backfill FilterLogs ToBlock to be set")
+	}
+	if backfillQuery.ToBlock.Uint64() != wantTo {
+		t.Errorf("expected backfill ToBlock=%d, got %d", wantTo, backfillQuery.ToBlock.Uint64())
+	}
+
+	wantAddresses := []common.Address{behindAddr}
+	if diff := cmp.Diff(wantAddresses, backfillQuery.Addresses); diff != "" {
+		t.Errorf("backfill FilterLogs addresses mismatch (-want +got):\n%s", diff)
+	}
+}
+
+// TestIndexer_BackfillAdvancesLastIndexedBlock verifies that after processing
+// a backfill batch, UpdateLastIndexedBlock is called with the end of the range.
+func TestIndexer_BackfillAdvancesLastIndexedBlock(t *testing.T) {
+	ethClient, s, ctx, cancel := setupBackfillTest(t, 100)
+
+	behindAddr := common.HexToAddress("0xCCCC")
+	s.watchedContractRepo.ListNeedingBackfillFn = func(_ context.Context, _ int64, _ uint64) ([]*cca.WatchedContract, error) {
+		return []*cca.WatchedContract{{
+			Address:          behindAddr,
+			ChainID:          1,
+			StartBlock:       10,
+			LastIndexedBlock: 80,
+		}}, nil
+	}
+
+	backfillUpdateCalled := false
+	var capturedAddr common.Address
+	var capturedBlock uint64
+
+	s.watchedContractRepo.UpdateLastIndexedBlockFn = func(_ context.Context, _ int64, address common.Address, lastIndexedBlock uint64) error {
+		if address == behindAddr {
+			backfillUpdateCalled = true
+			capturedAddr = address
+			capturedBlock = lastIndexedBlock
+			cancel()
+		}
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, backfillIndexerConfig())
+
+	_ = idx.Run(ctx)
+
+	if !backfillUpdateCalled {
+		t.Fatal("expected UpdateLastIndexedBlock to be called for the backfilling contract")
+	}
+
+	if capturedAddr != behindAddr {
+		t.Errorf("expected UpdateLastIndexedBlock for address %s, got %s", behindAddr.Hex(), capturedAddr.Hex())
+	}
+
+	wantBlock := uint64(90)
+	if capturedBlock != wantBlock {
+		t.Errorf("expected UpdateLastIndexedBlock with block=%d, got %d", wantBlock, capturedBlock)
+	}
+}
+
+// TestIndexer_BackfillUsesHandlerRegistry verifies that logs fetched during
+// backfill are dispatched through the HandlerRegistry.
+func TestIndexer_BackfillUsesHandlerRegistry(t *testing.T) {
+	ethClient, s, ctx, cancel := setupBackfillTest(t, 100)
+
+	ethClient.HeaderByNumberFn = func(_ context.Context, _ *big.Int) (*types.Header, error) {
+		return &types.Header{
+			ParentHash: common.HexToHash("0xparent"),
+			Time:       uint64(1700000000),
+		}, nil
+	}
+
+	eventID := common.HexToHash("0xDDDD")
+	handler := &mockHandler{eventName: "BackfillTestEvent", eventID: eventID}
+
+	behindAddr := common.HexToAddress("0xAAAA")
+	backfillLog := types.Log{
+		Topics:      []common.Hash{eventID},
+		BlockNumber: 55,
+		Address:     behindAddr,
+	}
+
+	s.watchedContractRepo.ListNeedingBackfillFn = func(_ context.Context, _ int64, _ uint64) ([]*cca.WatchedContract, error) {
+		return []*cca.WatchedContract{{
+			Address:          behindAddr,
+			ChainID:          1,
+			StartBlock:       10,
+			LastIndexedBlock: 50,
+		}}, nil
+	}
+
+	var mu sync.Mutex
+	filterCallCount := 0
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		mu.Lock()
+		filterCallCount++
+		n := filterCallCount
+		mu.Unlock()
+
+		if n == 1 {
+			return nil, nil
+		}
+
+		for _, addr := range q.Addresses {
+			if addr == behindAddr {
+				cancel()
+				return []types.Log{backfillLog}, nil
+			}
+		}
+		return nil, nil
+	}
+
+	registry := NewRegistry(noopLogger(), handler)
+	idx := setupIndexer(ethClient, s, registry, backfillIndexerConfig())
+
+	_ = idx.Run(ctx)
+
+	foundBackfillLog := false
+	for _, call := range handler.calls {
+		if call.BlockNumber == 55 {
+			foundBackfillLog = true
+			break
+		}
+	}
+	if !foundBackfillLog {
+		t.Fatalf("expected handler to receive backfill log from block 55, but it was not found in %d handler calls",
+			len(handler.calls))
+	}
+}
+
+// TestIndexer_BackfillStartsFromStartBlockWhenLastIndexedIsZero verifies that
+// when LastIndexedBlock == 0, backfill starts from the contract's StartBlock.
+func TestIndexer_BackfillStartsFromStartBlockWhenLastIndexedIsZero(t *testing.T) {
+	ethClient, s, ctx, cancel := setupBackfillTest(t, 100)
+
+	contractStartBlock := uint64(42)
+	s.watchedContractRepo.ListNeedingBackfillFn = func(_ context.Context, _ int64, _ uint64) ([]*cca.WatchedContract, error) {
+		return []*cca.WatchedContract{{
+			Address:          common.HexToAddress("0xEEEE"),
+			ChainID:          1,
+			StartBlock:       contractStartBlock,
+			LastIndexedBlock: 0,
+		}}, nil
+	}
+
+	var mu sync.Mutex
+	var filterLogsCalls []ethereum.FilterQuery
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		mu.Lock()
+		filterLogsCalls = append(filterLogsCalls, q)
+		n := len(filterLogsCalls)
+		mu.Unlock()
+
+		if n >= 2 {
+			cancel()
+		}
+		return nil, nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, backfillIndexerConfig())
+
+	_ = idx.Run(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(filterLogsCalls) < 2 {
+		t.Fatalf("expected at least 2 FilterLogs calls (forward + backfill), got %d", len(filterLogsCalls))
+	}
+
+	backfillQuery := filterLogsCalls[1]
+	if backfillQuery.FromBlock == nil {
+		t.Fatal("expected backfill FilterLogs FromBlock to be set")
+	}
+	if backfillQuery.FromBlock.Uint64() != contractStartBlock {
+		t.Errorf("expected backfill FromBlock=%d (contract StartBlock), got %d",
+			contractStartBlock, backfillQuery.FromBlock.Uint64())
+	}
+}
+
+// TestIndexer_BackfillContractJoinsCaughtUpAfterCompletion verifies that once
+// backfill reaches the global cursor, the contract transitions out of
+// ListNeedingBackfill on the next cycle.
+func TestIndexer_BackfillContractJoinsCaughtUpAfterCompletion(t *testing.T) {
+	ethClient, s, ctx, cancel := setupBackfillTest(t, 100)
+	_ = ethClient
+
+	contractAddr := common.HexToAddress("0xFFFF")
+
+	backfillUpdateCalled := false
+	var backfillUpdatedBlock uint64
+
+	s.watchedContractRepo.UpdateLastIndexedBlockFn = func(_ context.Context, _ int64, address common.Address, lastIndexedBlock uint64) error {
+		if address == contractAddr {
+			backfillUpdateCalled = true
+			backfillUpdatedBlock = lastIndexedBlock
+		}
+		return nil
+	}
+
+	backfillCycle := 0
+	s.watchedContractRepo.ListNeedingBackfillFn = func(_ context.Context, _ int64, _ uint64) ([]*cca.WatchedContract, error) {
+		backfillCycle++
+		if backfillCycle == 1 {
+			return []*cca.WatchedContract{{
+				Address:          contractAddr,
+				ChainID:          1,
+				StartBlock:       10,
+				LastIndexedBlock: 105,
+			}}, nil
+		}
+		cancel()
+		return nil, nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, backfillIndexerConfig())
+
+	_ = idx.Run(ctx)
+
+	if !backfillUpdateCalled {
+		t.Fatal("expected UpdateLastIndexedBlock to be called for the backfilling contract")
+	}
+
+	wantBlock := uint64(110)
+	if backfillUpdatedBlock != wantBlock {
+		t.Errorf("expected backfill to advance contract cursor to %d, got %d",
+			wantBlock, backfillUpdatedBlock)
+	}
+}
+
+// TestIndexer_BackfillProcessesOneBatchPerCycleThenYields verifies that backfill
+// processes at most BlockBatchSize blocks per contract per cycle, not the entire
+// range, so forward polling is not blocked.
+func TestIndexer_BackfillProcessesOneBatchPerCycleThenYields(t *testing.T) {
+	ethClient, s, ctx, cancel := setupBackfillTest(t, 100)
+
+	behindAddr := common.HexToAddress("0x1111")
+	s.watchedContractRepo.ListNeedingBackfillFn = func(_ context.Context, _ int64, _ uint64) ([]*cca.WatchedContract, error) {
+		return []*cca.WatchedContract{{
+			Address:          behindAddr,
+			ChainID:          1,
+			StartBlock:       10,
+			LastIndexedBlock: 50,
+		}}, nil
+	}
+
+	batchSize := uint64(10)
+	var mu sync.Mutex
+	var backfillQueries []ethereum.FilterQuery
+	filterCallCount := 0
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		mu.Lock()
+		filterCallCount++
+		n := filterCallCount
+		mu.Unlock()
+
+		if n == 1 {
+			return nil, nil
+		}
+
+		mu.Lock()
+		backfillQueries = append(backfillQueries, q)
+		mu.Unlock()
+
+		cancel()
+		return nil, nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: batchSize,
+		PollInterval:   5 * time.Millisecond,
+	})
+
+	_ = idx.Run(ctx)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	if len(backfillQueries) != 1 {
+		t.Fatalf("expected exactly 1 backfill FilterLogs call per cycle, got %d", len(backfillQueries))
+	}
+
+	q := backfillQueries[0]
+	if q.FromBlock == nil || q.ToBlock == nil {
+		t.Fatal("expected backfill query to have both FromBlock and ToBlock set")
+	}
+
+	backfillRange := q.ToBlock.Uint64() - q.FromBlock.Uint64() + 1
+	if backfillRange > batchSize {
+		t.Errorf("expected backfill batch to cover at most %d blocks, but it covered %d (from=%d to=%d)",
+			batchSize, backfillRange, q.FromBlock.Uint64(), q.ToBlock.Uint64())
+	}
+
+	wantTo := uint64(60)
+	if q.ToBlock.Uint64() != wantTo {
+		t.Errorf("expected backfill ToBlock=%d (one batch of %d from 51), got %d",
+			wantTo, batchSize, q.ToBlock.Uint64())
+	}
+}
+
