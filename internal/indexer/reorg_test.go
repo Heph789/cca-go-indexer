@@ -195,6 +195,11 @@ func TestHandleReorg_FindsCommonAncestor(t *testing.T) {
 	}
 }
 
+// TestHandleReorg_RollsBackAllDataInTransaction verifies that handleReorg
+// cascades the rollback to every repository — raw events, auctions, bids,
+// checkpoints, watched contract cursors, and block records — using the correct
+// fromBlock (ancestor + 1). Also verifies the global cursor is reset to the
+// common ancestor block and hash.
 func TestHandleReorg_RollsBackAllDataInTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -215,7 +220,9 @@ func TestHandleReorg_RollsBackAllDataInTransaction(t *testing.T) {
 		return common.Hash{}, nil // won't match for others, but 9 is first checked
 	}
 
-	var deletedRawFrom, deletedAuctionFrom, deletedBlockFrom uint64
+	var deletedRawFrom, deletedAuctionFrom, deletedBidFrom, deletedCheckpointFrom, deletedBlockFrom uint64
+	var rollbackCursorsFrom uint64
+	var rollbackCursorsCalled bool
 	var cursorBlock uint64
 	var cursorHash common.Hash
 
@@ -225,6 +232,25 @@ func TestHandleReorg_RollsBackAllDataInTransaction(t *testing.T) {
 	}
 	ms.auctionRepo.DeleteFromBlockFn = func(_ context.Context, _ int64, from uint64) error {
 		deletedAuctionFrom = from
+		return nil
+	}
+	// Bid repo must be rolled back so that stale bids from the reorged
+	// blocks do not persist after the chain reorganizes.
+	ms.bidRepo.DeleteFromBlockFn = func(_ context.Context, _ int64, from uint64) error {
+		deletedBidFrom = from
+		return nil
+	}
+	// Checkpoint repo must be rolled back so that stale checkpoint records
+	// from reorged blocks are purged.
+	ms.checkpointRepo.DeleteFromBlockFn = func(_ context.Context, _ int64, from uint64) error {
+		deletedCheckpointFrom = from
+		return nil
+	}
+	// Watched contract cursors must be rolled back so that per-contract
+	// last_indexed_block values do not exceed the new global cursor.
+	ms.watchedContractRepo.RollbackCursorsFn = func(_ context.Context, _ int64, from uint64) error {
+		rollbackCursorsCalled = true
+		rollbackCursorsFrom = from
 		return nil
 	}
 	ms.blockRepo.DeleteFromFn = func(_ context.Context, _ int64, from uint64) error {
@@ -243,20 +269,49 @@ func TestHandleReorg_RollsBackAllDataInTransaction(t *testing.T) {
 	}
 
 	// rollbackFrom = ancestor(9) + 1 = 10
-	if deletedRawFrom != 10 {
-		t.Fatalf("expected raw events deleted from 10, got %d", deletedRawFrom)
+	wantRollbackFrom := uint64(10)
+
+	// --- raw events ---
+	if deletedRawFrom != wantRollbackFrom {
+		t.Fatalf("expected raw events deleted from %d, got %d", wantRollbackFrom, deletedRawFrom)
 	}
-	if deletedAuctionFrom != 10 {
-		t.Fatalf("expected auctions deleted from 10, got %d", deletedAuctionFrom)
+
+	// --- auctions ---
+	if deletedAuctionFrom != wantRollbackFrom {
+		t.Fatalf("expected auctions deleted from %d, got %d", wantRollbackFrom, deletedAuctionFrom)
 	}
-	if deletedBlockFrom != 10 {
-		t.Fatalf("expected blocks deleted from 10, got %d", deletedBlockFrom)
+
+	// --- bids ---
+	if deletedBidFrom != wantRollbackFrom {
+		t.Fatalf("expected bids deleted from %d, got %d", wantRollbackFrom, deletedBidFrom)
 	}
-	if cursorBlock != 9 {
-		t.Fatalf("expected cursor at 9, got %d", cursorBlock)
+
+	// --- checkpoints ---
+	if deletedCheckpointFrom != wantRollbackFrom {
+		t.Fatalf("expected checkpoints deleted from %d, got %d", wantRollbackFrom, deletedCheckpointFrom)
 	}
-	if cursorHash != headers[9].Hash() {
-		t.Fatalf("expected cursor hash %s, got %s", headers[9].Hash(), cursorHash)
+
+	// --- watched contract cursors ---
+	if !rollbackCursorsCalled {
+		t.Fatal("expected WatchedContractRepo.RollbackCursors to be called")
+	}
+	if rollbackCursorsFrom != wantRollbackFrom {
+		t.Fatalf("expected watched contract cursors rolled back from %d, got %d", wantRollbackFrom, rollbackCursorsFrom)
+	}
+
+	// --- block records ---
+	if deletedBlockFrom != wantRollbackFrom {
+		t.Fatalf("expected blocks deleted from %d, got %d", wantRollbackFrom, deletedBlockFrom)
+	}
+
+	// --- global cursor reset ---
+	wantCursorBlock := uint64(9)
+	wantCursorHash := headers[9].Hash()
+	if cursorBlock != wantCursorBlock {
+		t.Fatalf("expected cursor at %d, got %d", wantCursorBlock, cursorBlock)
+	}
+	if cursorHash != wantCursorHash {
+		t.Fatalf("expected cursor hash %s, got %s", wantCursorHash, cursorHash)
 	}
 }
 
