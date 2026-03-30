@@ -6,6 +6,7 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -104,6 +105,33 @@ func (r *queryResolver) Auctions(ctx context.Context, chainID *int, first *int, 
 			EndCursor:   endCursor,
 		},
 	}, nil
+}
+
+// BidHint is the resolver for the bidHint field.
+func (r *queryResolver) BidHint(ctx context.Context, auctionAddress common.Address, maxPrice *big.Int) (*BidHintResult, error) {
+	addr := strings.ToLower(auctionAddress.Hex())
+
+	price, err := r.Store.BidRepo().GetPrevTickPrice(ctx, r.ChainID, addr, maxPrice.String())
+	if err != nil {
+		return nil, err
+	}
+
+	if price == "" {
+		auction, err := r.Store.AuctionRepo().GetByAddress(ctx, r.ChainID, addr)
+		if err != nil {
+			return nil, err
+		}
+		if auction == nil {
+			return nil, fmt.Errorf("auction not found: %s", addr)
+		}
+		return &BidHintResult{PrevTickPrice: auction.FloorPrice}, nil
+	}
+
+	n, ok := new(big.Int).SetString(price, 10)
+	if !ok {
+		return nil, fmt.Errorf("invalid price from store: %s", price)
+	}
+	return &BidHintResult{PrevTickPrice: n}, nil
 }
 
 // Auction returns AuctionResolver implementation.
