@@ -10,6 +10,7 @@ type RawEvent struct {
 	ChainID     int64
 	BlockNumber uint64
 	BlockHash   common.Hash
+	BlockTime   time.Time
 	TxHash      common.Hash
 	LogIndex    uint
 	Address     common.Address
