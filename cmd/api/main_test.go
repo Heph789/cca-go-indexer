@@ -2,8 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,6 +148,226 @@ func TestRun(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRun_GraphQLEndpoint tests that the API server mounts a GraphQL endpoint
+// at /graphql. After wiring (issue #101), POST /graphql should accept GraphQL
+// queries and GET /graphql should serve the playground/introspection.
+// These tests should FAIL until the GraphQL endpoint is wired into run().
+func TestRun_GraphQLEndpoint(t *testing.T) {
+	logger := applog.NewLogger("error", "text")
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		wantStatus int
+	}{
+		// --- GraphQL POST endpoint ---
+
+		// A POST to /graphql with an introspection query should return 200
+		// with a valid JSON response containing the schema. This verifies the
+		// endpoint is mounted and the gqlgen handler is wired.
+		{
+			name:       "POST /graphql returns 200 for introspection query",
+			method:     http.MethodPost,
+			path:       "/graphql",
+			body:       `{"query": "{ __schema { queryType { name } } }"}`,
+			wantStatus: http.StatusOK,
+		},
+
+		// --- GraphQL GET endpoint ---
+
+		// A GET to /graphql should return 200 (serves the GraphQL playground
+		// or handles GET-based queries). This verifies GET is not rejected.
+		{
+			name:       "GET /graphql returns 200",
+			method:     http.MethodGet,
+			path:       "/graphql",
+			body:       "",
+			wantStatus: http.StatusOK,
+		},
+
+		// --- existing health endpoints should still work ---
+
+		// Health endpoint should continue to respond after adding GraphQL.
+		{
+			name:       "GET /health still returns 200",
+			method:     http.MethodGet,
+			path:       "/health",
+			body:       "",
+			wantStatus: http.StatusOK,
+		},
+
+		// Readiness endpoint should continue to respond after adding GraphQL.
+		{
+			name:       "GET /ready still returns 200",
+			method:     http.MethodGet,
+			path:       "/ready",
+			body:       "",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			port := freePort(t)
+			cfg := &config.Config{
+				Port:    port,
+				ChainID: 1,
+			}
+			st := &mockStore{}
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- run(ctx, cancel, cfg, logger, st)
+			}()
+
+			// Wait for the server to be ready by polling the health endpoint.
+			baseURL := "http://127.0.0.1:" + port
+			waitForServer(t, baseURL+"/health", 2*time.Second)
+
+			var resp *http.Response
+			var err error
+
+			targetURL := baseURL + tt.path
+			if tt.method == http.MethodPost {
+				resp, err = http.Post(targetURL, "application/json", strings.NewReader(tt.body))
+			} else {
+				resp, err = http.Get(targetURL)
+			}
+			if err != nil {
+				t.Fatalf("HTTP %s %s failed: %v", tt.method, tt.path, err)
+			}
+			defer resp.Body.Close()
+
+			if resp.StatusCode != tt.wantStatus {
+				body, _ := io.ReadAll(resp.Body)
+				t.Errorf("HTTP %s %s status = %d, want %d; body: %s",
+					tt.method, tt.path, resp.StatusCode, tt.wantStatus, string(body))
+			}
+
+			cancel()
+			// Drain the run goroutine error.
+			<-errCh
+		})
+	}
+}
+
+// TestRun_GraphQLIntrospectionReturnsSchema sends a full introspection query
+// to /graphql and verifies the response is valid JSON containing
+// data.__schema.queryType.name. This confirms the schema is loaded and
+// resolvers are wired. Should FAIL until GraphQL is wired into run().
+func TestRun_GraphQLIntrospectionReturnsSchema(t *testing.T) {
+	logger := applog.NewLogger("error", "text")
+	port := freePort(t)
+	cfg := &config.Config{
+		Port:    port,
+		ChainID: 1,
+	}
+	st := &mockStore{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- run(ctx, cancel, cfg, logger, st)
+	}()
+
+	baseURL := "http://127.0.0.1:" + port
+	waitForServer(t, baseURL+"/health", 2*time.Second)
+
+	// Send an introspection query.
+	introspectionQuery := `{"query": "{ __schema { queryType { name } } }"}`
+	resp, err := http.Post(baseURL+"/graphql", "application/json", strings.NewReader(introspectionQuery))
+	if err != nil {
+		t.Fatalf("POST /graphql failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	wantStatus := http.StatusOK
+	if resp.StatusCode != wantStatus {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("POST /graphql status = %d, want %d; body: %s", resp.StatusCode, wantStatus, string(body))
+	}
+
+	// Parse the JSON response and verify it contains the expected structure.
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode /graphql response as JSON: %v", err)
+	}
+
+	// Traverse data.__schema.queryType.name
+	data, ok := result["data"]
+	if !ok {
+		t.Fatalf("response missing 'data' key; got keys: %v", mapKeys(result))
+	}
+	dataMap, ok := data.(map[string]any)
+	if !ok {
+		t.Fatalf("'data' is not an object; got %T", data)
+	}
+
+	schema, ok := dataMap["__schema"]
+	if !ok {
+		t.Fatalf("response.data missing '__schema' key; got keys: %v", mapKeys(dataMap))
+	}
+	schemaMap, ok := schema.(map[string]any)
+	if !ok {
+		t.Fatalf("'__schema' is not an object; got %T", schema)
+	}
+
+	queryType, ok := schemaMap["queryType"]
+	if !ok {
+		t.Fatalf("response.data.__schema missing 'queryType' key; got keys: %v", mapKeys(schemaMap))
+	}
+	queryTypeMap, ok := queryType.(map[string]any)
+	if !ok {
+		t.Fatalf("'queryType' is not an object; got %T", queryType)
+	}
+
+	wantName := "Query"
+	gotName, ok := queryTypeMap["name"]
+	if !ok {
+		t.Fatalf("response.data.__schema.queryType missing 'name' key")
+	}
+	if gotName != wantName {
+		t.Errorf("queryType.name = %v, want %q", gotName, wantName)
+	}
+
+	cancel()
+	<-errCh
+}
+
+// waitForServer polls the given URL until it gets a 200 response or the
+// timeout expires. Used to wait for the test server to be ready.
+func waitForServer(t *testing.T, url string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := http.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("server at %s not ready within %v", url, timeout)
+}
+
+// mapKeys returns the keys of a map for diagnostic output in test failures.
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }
 
 // TestRun_DeferredCleanupExecutes verifies that the store's Close method is
