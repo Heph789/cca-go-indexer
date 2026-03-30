@@ -127,12 +127,12 @@ func (r *bidRepo) GetPrevTickPrice(ctx context.Context, chainID int64, auctionAd
 // scanBid scans a single row from the event_cca_bid_submitted table into a Bid struct.
 func scanBid(row pgx.Rows) (*cca.Bid, error) {
 	var (
-		chainIDVal                          int64
-		auctionAddr, ownerStr, txHash       string
-		priceQ96Str, amountStr              string
-		blockNumber                         uint64
-		logIndex                            uint
-		b                                   cca.Bid
+		chainIDVal                    int64
+		auctionAddr, ownerStr, txHash string
+		priceQ96Str, amountStr        string
+		blockNumber                   uint64
+		logIndex                      uint
+		b                             cca.Bid
 	)
 
 	if err := row.Scan(

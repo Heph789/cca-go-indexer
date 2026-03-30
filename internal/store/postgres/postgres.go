@@ -121,10 +121,8 @@ func (s *pgStore) AuctionRepo() store.AuctionRepository {
 	return &auctionRepo{q: s.q()}
 }
 
-// BidRepo returns a stub BidRepository. The backing table is created in a
-// later migration (#100); until then callers must not invoke its methods.
 func (s *pgStore) BidRepo() store.BidRepository {
-	return nil
+	return &bidRepo{q: s.q()}
 }
 
 func (s *pgStore) CheckpointRepo() store.CheckpointRepository {
@@ -150,13 +148,14 @@ func (s *pgStore) WatchedContractRepo() store.WatchedContractRepository {
 // RollbackFromBlock deletes all indexed data at or after fromBlock across all
 // domain repositories and resets watched contract cursors. Used during reorg recovery.
 func (s *pgStore) RollbackFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error {
-	q := s.q()
-
-	if _, err := q.Exec(ctx, "DELETE FROM raw_events WHERE chain_id = $1 AND block_number >= $2", chainID, fromBlock); err != nil {
+	if err := s.RawEventRepo().DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
 		return fmt.Errorf("delete raw events: %w", err)
 	}
-	if _, err := q.Exec(ctx, "DELETE FROM event_ccaf_auction_created WHERE chain_id = $1 AND block_number >= $2", chainID, fromBlock); err != nil {
+	if err := s.AuctionRepo().DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
 		return fmt.Errorf("delete auctions: %w", err)
+	}
+	if err := s.BidRepo().DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
+		return fmt.Errorf("delete bids: %w", err)
 	}
 	if err := s.CheckpointRepo().DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
 		return fmt.Errorf("delete checkpoints: %w", err)
@@ -164,7 +163,7 @@ func (s *pgStore) RollbackFromBlock(ctx context.Context, chainID int64, fromBloc
 	if err := s.WatchedContractRepo().RollbackCursors(ctx, chainID, fromBlock); err != nil {
 		return err
 	}
-	if _, err := q.Exec(ctx, "DELETE FROM indexed_blocks WHERE chain_id = $1 AND block_number >= $2", chainID, fromBlock); err != nil {
+	if err := s.BlockRepo().DeleteFrom(ctx, chainID, fromBlock); err != nil {
 		return fmt.Errorf("delete blocks: %w", err)
 	}
 	return nil
