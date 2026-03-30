@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math/big"
 	"testing"
-
 	"time"
 
 	"github.com/cca/go-indexer/internal/domain/cca"
@@ -17,7 +16,7 @@ func truncateAll(t *testing.T, s store.Store) {
 	t.Helper()
 	ps := s.(*pgStore)
 	ctx := context.Background()
-	_, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexed_blocks, raw_events, event_ccaf_auction_created, watched_contracts")
+	_, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexed_blocks, raw_events, event_ccaf_auction_created, event_cca_checkpoint_updated, watched_contracts")
 	if err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -878,5 +877,458 @@ func TestRollbackFromBlock_IncludesWatchedContractCursors(t *testing.T) {
 	wantEventCount := 0
 	if eventCount != wantEventCount {
 		t.Errorf("expected %d raw events at fromBlock, got %d", wantEventCount, eventCount)
+	}
+}
+
+// ---------- Checkpoint helpers ----------
+
+// makeCheckpoint builds a Checkpoint with sensible defaults for the given
+// chain, auction address, logical block number, and tx block number.
+// Callers can override fields after creation.
+func makeCheckpoint(chainID int64, auctionAddr common.Address, blockNumber, txBlockNumber uint64, logIndex uint) *cca.Checkpoint {
+	return &cca.Checkpoint{
+		BlockNumber:      blockNumber,
+		ClearingPriceQ96: parseBigInt("79228162514264337593543950336"), // ~1.0 in Q96
+		CumulativeMps:    42,
+		AuctionAddress:   auctionAddr,
+		ChainID:          chainID,
+		TxBlockNumber:    txBlockNumber,
+		TxBlockTime:      time.Date(2025, 6, 15, 12, 0, 0, 0, time.UTC),
+		TxHash:           common.HexToHash("0xcheckpointTxHash"),
+		LogIndex:         logIndex,
+	}
+}
+
+// ---------- Checkpoint tests ----------
+
+// TestCheckpoint_Insert_GetLatest_RoundTrip verifies that inserting a
+// checkpoint and then calling GetLatest returns the checkpoint with the
+// highest block_number for that auction. This covers the basic write-then-read
+// round-trip and ensures all fields survive the persistence layer.
+func TestCheckpoint_Insert_GetLatest_RoundTrip(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA01")
+
+	// Insert two checkpoints at different logical block numbers.
+	// GetLatest should return the one with the higher block_number.
+	cp1 := makeCheckpoint(chainID, auctionAddr, 10, 1000, 0)
+	cp2 := makeCheckpoint(chainID, auctionAddr, 20, 2000, 1)
+	cp2.ClearingPriceQ96 = parseBigInt("158456325028528675187087900672") // ~2.0 in Q96
+	cp2.CumulativeMps = 84
+	cp2.TxHash = common.HexToHash("0xcheckpointTxHash2")
+	cp2.TxBlockTime = time.Date(2025, 6, 16, 12, 0, 0, 0, time.UTC)
+
+	err := s.CheckpointRepo().Insert(ctx, cp1)
+	if err != nil {
+		t.Fatalf("Insert cp1: %v", err)
+	}
+	err = s.CheckpointRepo().Insert(ctx, cp2)
+	if err != nil {
+		t.Fatalf("Insert cp2: %v", err)
+	}
+
+	// GetLatest should return cp2 (block_number=20 > block_number=10).
+	addr := lowerHex(auctionAddr)
+	got, err := s.CheckpointRepo().GetLatest(ctx, chainID, addr)
+	if err != nil {
+		t.Fatalf("GetLatest: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected checkpoint, got nil")
+	}
+
+	wantBlockNumber := uint64(20)
+	if got.BlockNumber != wantBlockNumber {
+		t.Errorf("BlockNumber: got %d, want %d", got.BlockNumber, wantBlockNumber)
+	}
+
+	wantClearingPrice := parseBigInt("158456325028528675187087900672")
+	if got.ClearingPriceQ96.Cmp(wantClearingPrice) != 0 {
+		t.Errorf("ClearingPriceQ96: got %s, want %s", got.ClearingPriceQ96.String(), wantClearingPrice.String())
+	}
+
+	wantCumulativeMps := uint32(84)
+	if got.CumulativeMps != wantCumulativeMps {
+		t.Errorf("CumulativeMps: got %d, want %d", got.CumulativeMps, wantCumulativeMps)
+	}
+
+	wantAuctionAddr := auctionAddr
+	if got.AuctionAddress != wantAuctionAddr {
+		t.Errorf("AuctionAddress: got %s, want %s", got.AuctionAddress.Hex(), wantAuctionAddr.Hex())
+	}
+
+	wantChainID := chainID
+	if got.ChainID != wantChainID {
+		t.Errorf("ChainID: got %d, want %d", got.ChainID, wantChainID)
+	}
+
+	wantTxBlockNumber := uint64(2000)
+	if got.TxBlockNumber != wantTxBlockNumber {
+		t.Errorf("TxBlockNumber: got %d, want %d", got.TxBlockNumber, wantTxBlockNumber)
+	}
+
+	wantTxBlockTime := time.Date(2025, 6, 16, 12, 0, 0, 0, time.UTC)
+	if !got.TxBlockTime.Equal(wantTxBlockTime) {
+		t.Errorf("TxBlockTime: got %v, want %v", got.TxBlockTime, wantTxBlockTime)
+	}
+
+	wantTxHash := common.HexToHash("0xcheckpointTxHash2")
+	if got.TxHash != wantTxHash {
+		t.Errorf("TxHash: got %s, want %s", got.TxHash.Hex(), wantTxHash.Hex())
+	}
+
+	wantLogIndex := uint(1)
+	if got.LogIndex != wantLogIndex {
+		t.Errorf("LogIndex: got %d, want %d", got.LogIndex, wantLogIndex)
+	}
+}
+
+// TestCheckpoint_GetLatest_NonExistent verifies that GetLatest returns nil
+// when no checkpoints exist for the given auction, rather than returning
+// an error.
+func TestCheckpoint_GetLatest_NonExistent(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	got, err := s.CheckpointRepo().GetLatest(ctx, 1, "0x0000000000000000000000000000000000000000")
+	if err != nil {
+		t.Fatalf("GetLatest: %v", err)
+	}
+	if got != nil {
+		t.Errorf("expected nil for non-existent auction, got %+v", got)
+	}
+}
+
+// TestCheckpoint_Insert_DuplicateNoError verifies that inserting the same
+// checkpoint twice (same chain_id, auction_address, block_number PK) does not
+// return an error, matching the ON CONFLICT DO NOTHING pattern used elsewhere.
+func TestCheckpoint_Insert_DuplicateNoError(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	cp := makeCheckpoint(1, common.HexToAddress("0xBBBB"), 10, 1000, 0)
+	_ = s.CheckpointRepo().Insert(ctx, cp)
+	err := s.CheckpointRepo().Insert(ctx, cp)
+	if err != nil {
+		t.Fatalf("duplicate Insert should not error: %v", err)
+	}
+}
+
+// TestCheckpoint_ListByAuction_DescendingWithPagination tests that
+// ListByAuction returns checkpoints in descending block_number order and
+// supports cursor-based pagination. Covers: first page without cursor, second
+// page with cursor, and page size limit.
+func TestCheckpoint_ListByAuction_DescendingWithPagination(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC01")
+	addr := lowerHex(auctionAddr)
+
+	// Insert 5 checkpoints at block numbers 10, 20, 30, 40, 50.
+	for i := uint64(1); i <= 5; i++ {
+		blockNum := i * 10
+		txBlockNum := uint64(1000) + i
+		cp := makeCheckpoint(chainID, auctionAddr, blockNum, txBlockNum, uint(i))
+		err := s.CheckpointRepo().Insert(ctx, cp)
+		if err != nil {
+			t.Fatalf("Insert block %d: %v", blockNum, err)
+		}
+	}
+
+	// --- First page: fetch 3 items, no cursor ---
+	// Should return block_numbers [50, 40, 30] in descending order.
+	firstPageParams := store.PaginationParams{Limit: 3}
+	page1, err := s.CheckpointRepo().ListByAuction(ctx, chainID, addr, firstPageParams)
+	if err != nil {
+		t.Fatalf("ListByAuction page 1: %v", err)
+	}
+
+	wantPage1Len := 3
+	if len(page1) != wantPage1Len {
+		t.Fatalf("page 1: expected %d results, got %d", wantPage1Len, len(page1))
+	}
+
+	wantPage1Blocks := []uint64{50, 40, 30}
+	for i, want := range wantPage1Blocks {
+		if page1[i].BlockNumber != want {
+			t.Errorf("page 1[%d]: got block_number %d, want %d", i, page1[i].BlockNumber, want)
+		}
+	}
+
+	// --- Second page: use cursor from last item of page 1 ---
+	// Cursor at (block_number=30, log_index=3); next page should return [20, 10].
+	cursorBlock := page1[len(page1)-1].BlockNumber
+	cursorLogIdx := page1[len(page1)-1].LogIndex
+	secondPageParams := store.PaginationParams{
+		Limit:             3,
+		CursorBlockNumber: &cursorBlock,
+		CursorLogIndex:    &cursorLogIdx,
+	}
+	page2, err := s.CheckpointRepo().ListByAuction(ctx, chainID, addr, secondPageParams)
+	if err != nil {
+		t.Fatalf("ListByAuction page 2: %v", err)
+	}
+
+	wantPage2Len := 2
+	if len(page2) != wantPage2Len {
+		t.Fatalf("page 2: expected %d results, got %d", wantPage2Len, len(page2))
+	}
+
+	wantPage2Blocks := []uint64{20, 10}
+	for i, want := range wantPage2Blocks {
+		if page2[i].BlockNumber != want {
+			t.Errorf("page 2[%d]: got block_number %d, want %d", i, page2[i].BlockNumber, want)
+		}
+	}
+}
+
+// TestCheckpoint_ListByAuction_EmptyResult verifies that ListByAuction
+// returns an empty (non-nil or nil) slice with no error when no checkpoints
+// exist for the requested auction.
+func TestCheckpoint_ListByAuction_EmptyResult(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	params := store.PaginationParams{Limit: 10}
+	got, err := s.CheckpointRepo().ListByAuction(ctx, 1, "0x0000000000000000000000000000000000000000", params)
+	if err != nil {
+		t.Fatalf("ListByAuction: %v", err)
+	}
+
+	wantLen := 0
+	if len(got) != wantLen {
+		t.Errorf("expected %d results for empty auction, got %d", wantLen, len(got))
+	}
+}
+
+// TestCheckpoint_ListByAuction_ScopedByAuction verifies that ListByAuction
+// only returns checkpoints for the specified auction address, not checkpoints
+// belonging to other auctions on the same chain.
+func TestCheckpoint_ListByAuction_ScopedByAuction(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionA := common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	auctionB := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+
+	// Insert one checkpoint for each auction.
+	cpA := makeCheckpoint(chainID, auctionA, 10, 1000, 0)
+	cpB := makeCheckpoint(chainID, auctionB, 20, 2000, 1)
+
+	_ = s.CheckpointRepo().Insert(ctx, cpA)
+	_ = s.CheckpointRepo().Insert(ctx, cpB)
+
+	// Query only auction A.
+	params := store.PaginationParams{Limit: 10}
+	got, err := s.CheckpointRepo().ListByAuction(ctx, chainID, lowerHex(auctionA), params)
+	if err != nil {
+		t.Fatalf("ListByAuction: %v", err)
+	}
+
+	wantLen := 1
+	if len(got) != wantLen {
+		t.Fatalf("expected %d checkpoint(s) for auction A, got %d", wantLen, len(got))
+	}
+
+	wantBlockNumber := uint64(10)
+	if got[0].BlockNumber != wantBlockNumber {
+		t.Errorf("BlockNumber: got %d, want %d", got[0].BlockNumber, wantBlockNumber)
+	}
+}
+
+// TestCheckpoint_DeleteFromBlock_DeletesByTxBlockNumber verifies that
+// DeleteFromBlock removes checkpoints based on tx_block_number (the chain
+// block where the tx was mined), NOT the logical block_number field. This
+// distinction is critical for reorg handling: when we roll back chain blocks,
+// we must delete events from those chain blocks regardless of their
+// auction-internal block numbering.
+func TestCheckpoint_DeleteFromBlock_DeletesByTxBlockNumber(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD01")
+	addr := lowerHex(auctionAddr)
+
+	// Insert three checkpoints with different tx_block_numbers.
+	// Note: logical block_number != tx_block_number to prove we delete by tx_block.
+	//   cp1: block_number=5,  tx_block_number=100 (should survive)
+	//   cp2: block_number=10, tx_block_number=200 (should be deleted, tx_block >= 200)
+	//   cp3: block_number=15, tx_block_number=300 (should be deleted, tx_block >= 200)
+	cp1 := makeCheckpoint(chainID, auctionAddr, 5, 100, 0)
+	cp2 := makeCheckpoint(chainID, auctionAddr, 10, 200, 1)
+	cp3 := makeCheckpoint(chainID, auctionAddr, 15, 300, 2)
+
+	_ = s.CheckpointRepo().Insert(ctx, cp1)
+	_ = s.CheckpointRepo().Insert(ctx, cp2)
+	_ = s.CheckpointRepo().Insert(ctx, cp3)
+
+	// Delete from tx_block_number >= 200.
+	fromBlock := uint64(200)
+	err := s.CheckpointRepo().DeleteFromBlock(ctx, chainID, fromBlock)
+	if err != nil {
+		t.Fatalf("DeleteFromBlock: %v", err)
+	}
+
+	// Only cp1 (tx_block_number=100) should remain.
+	params := store.PaginationParams{Limit: 10}
+	remaining, err := s.CheckpointRepo().ListByAuction(ctx, chainID, addr, params)
+	if err != nil {
+		t.Fatalf("ListByAuction after delete: %v", err)
+	}
+
+	wantLen := 1
+	if len(remaining) != wantLen {
+		t.Fatalf("expected %d remaining checkpoint(s), got %d", wantLen, len(remaining))
+	}
+
+	wantBlockNumber := uint64(5)
+	if remaining[0].BlockNumber != wantBlockNumber {
+		t.Errorf("remaining checkpoint BlockNumber: got %d, want %d", remaining[0].BlockNumber, wantBlockNumber)
+	}
+}
+
+// TestCheckpoint_DeleteFromBlock_KeepsBelowThreshold verifies that
+// DeleteFromBlock does not remove checkpoints whose tx_block_number is
+// strictly below the fromBlock threshold.
+func TestCheckpoint_DeleteFromBlock_KeepsBelowThreshold(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE01")
+	addr := lowerHex(auctionAddr)
+
+	cp := makeCheckpoint(chainID, auctionAddr, 10, 99, 0)
+	_ = s.CheckpointRepo().Insert(ctx, cp)
+
+	// Delete from tx_block_number >= 100. The checkpoint at tx_block 99 should survive.
+	err := s.CheckpointRepo().DeleteFromBlock(ctx, chainID, 100)
+	if err != nil {
+		t.Fatalf("DeleteFromBlock: %v", err)
+	}
+
+	params := store.PaginationParams{Limit: 10}
+	remaining, err := s.CheckpointRepo().ListByAuction(ctx, chainID, addr, params)
+	if err != nil {
+		t.Fatalf("ListByAuction: %v", err)
+	}
+
+	wantLen := 1
+	if len(remaining) != wantLen {
+		t.Errorf("expected %d checkpoint(s) to survive, got %d", wantLen, len(remaining))
+	}
+}
+
+// TestCheckpoint_BigIntClearingPriceRoundTrip verifies that very large
+// ClearingPriceQ96 values (exceeding int64 range) survive the database
+// round-trip without loss of precision.
+func TestCheckpoint_BigIntClearingPriceRoundTrip(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF01")
+
+	cp := makeCheckpoint(chainID, auctionAddr, 1, 1000, 0)
+	// Use a value that exceeds int64 range to test NUMERIC handling.
+	wantPrice, _ := new(big.Int).SetString("123456789012345678901234567890123456789", 10)
+	cp.ClearingPriceQ96 = wantPrice
+
+	err := s.CheckpointRepo().Insert(ctx, cp)
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	got, err := s.CheckpointRepo().GetLatest(ctx, chainID, lowerHex(auctionAddr))
+	if err != nil {
+		t.Fatalf("GetLatest: %v", err)
+	}
+	if got == nil {
+		t.Fatal("expected checkpoint, got nil")
+	}
+
+	if got.ClearingPriceQ96.Cmp(wantPrice) != 0 {
+		t.Errorf("ClearingPriceQ96: got %s, want %s", got.ClearingPriceQ96.String(), wantPrice.String())
+	}
+}
+
+// TestRollbackFromBlock_IncludesCheckpoints verifies that the pgStore-level
+// RollbackFromBlock method also deletes checkpoint records (by tx_block_number)
+// in addition to raw events, auctions, blocks, and watched contract cursors.
+// This is an end-to-end integration test ensuring the rollback cascade is
+// complete for reorg recovery.
+func TestRollbackFromBlock_IncludesCheckpoints(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0x1111111111111111111111111111111111111111")
+
+	// Insert a checkpoint at tx_block_number=300 (at the rollback point).
+	cpAtRollback := makeCheckpoint(chainID, auctionAddr, 10, 300, 0)
+	// Insert a checkpoint at tx_block_number=200 (below the rollback point, should survive).
+	cpBelow := makeCheckpoint(chainID, auctionAddr, 5, 200, 1)
+
+	err := s.CheckpointRepo().Insert(ctx, cpAtRollback)
+	if err != nil {
+		t.Fatalf("Insert checkpoint at rollback: %v", err)
+	}
+	err = s.CheckpointRepo().Insert(ctx, cpBelow)
+	if err != nil {
+		t.Fatalf("Insert checkpoint below rollback: %v", err)
+	}
+
+	// Also insert a block and raw event so we exercise the full cascade.
+	fromBlock := uint64(300)
+	_ = s.BlockRepo().Insert(ctx, chainID, fromBlock, common.HexToHash("0xrollbackblock"), common.HexToHash("0xparent"))
+	_ = s.RawEventRepo().Insert(ctx, makeRawEvent(chainID, fromBlock, 0))
+
+	ps := s.(*pgStore)
+	err = ps.RollbackFromBlock(ctx, chainID, fromBlock)
+	if err != nil {
+		t.Fatalf("RollbackFromBlock: %v", err)
+	}
+
+	// The checkpoint at tx_block_number=300 should be deleted.
+	// The checkpoint at tx_block_number=200 should survive.
+	addr := lowerHex(auctionAddr)
+	params := store.PaginationParams{Limit: 10}
+	remaining, err := s.CheckpointRepo().ListByAuction(ctx, chainID, addr, params)
+	if err != nil {
+		t.Fatalf("ListByAuction after rollback: %v", err)
+	}
+
+	wantLen := 1
+	if len(remaining) != wantLen {
+		t.Fatalf("expected %d checkpoint(s) after rollback, got %d", wantLen, len(remaining))
+	}
+
+	wantSurvivingBlock := uint64(5)
+	if remaining[0].BlockNumber != wantSurvivingBlock {
+		t.Errorf("surviving checkpoint BlockNumber: got %d, want %d", remaining[0].BlockNumber, wantSurvivingBlock)
+	}
+
+	// Confirm block was also deleted (sanity check for cascade).
+	hash, _ := s.BlockRepo().GetHash(ctx, chainID, fromBlock)
+	wantHash := common.Hash{}
+	if hash != wantHash {
+		t.Errorf("block at fromBlock should be deleted, got hash %s", hash.Hex())
 	}
 }
