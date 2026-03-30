@@ -112,15 +112,6 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			}
 		}
 
-		if chainHead < idx.config.Confirmations {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(idx.config.PollInterval):
-				continue
-			}
-		}
-
 		safeHead := chainHead - idx.config.Confirmations
 		if cursor >= safeHead {
 			idx.logger.Debug("at chain head, sleeping", "cursor", cursor, "safe_head", safeHead)

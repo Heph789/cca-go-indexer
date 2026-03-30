@@ -1186,10 +1186,11 @@ func TestIndexer_RetriesOnWithTxError(t *testing.T) {
 			return fmt.Errorf("db connection lost")
 		}
 		txStore := &mockStore{
-			auctionRepo:  s.auctionRepo,
-			rawEventRepo: s.rawEventRepo,
-			cursorRepo:   s.cursorRepo,
-			blockRepo:    s.blockRepo,
+			auctionRepo:         s.auctionRepo,
+			rawEventRepo:        s.rawEventRepo,
+			cursorRepo:          s.cursorRepo,
+			blockRepo:           s.blockRepo,
+			watchedContractRepo: s.watchedContractRepo,
 		}
 		err := fn(txStore)
 		if err != nil {
