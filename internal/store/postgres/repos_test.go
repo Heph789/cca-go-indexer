@@ -16,7 +16,7 @@ func truncateAll(t *testing.T, s store.Store) {
 	t.Helper()
 	ps := s.(*pgStore)
 	ctx := context.Background()
-	_, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexed_blocks, raw_events, event_ccaf_auction_created, event_cca_checkpoint_updated, watched_contracts")
+	_, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexed_blocks, raw_events, event_ccaf_auction_created, event_cca_checkpoint_updated, event_cca_bid_submitted, watched_contracts")
 	if err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -1323,6 +1323,401 @@ func TestRollbackFromBlock_IncludesCheckpoints(t *testing.T) {
 	wantSurvivingBlock := uint64(5)
 	if remaining[0].BlockNumber != wantSurvivingBlock {
 		t.Errorf("surviving checkpoint BlockNumber: got %d, want %d", remaining[0].BlockNumber, wantSurvivingBlock)
+	}
+
+	// Confirm block was also deleted (sanity check for cascade).
+	hash, _ := s.BlockRepo().GetHash(ctx, chainID, fromBlock)
+	wantHash := common.Hash{}
+	if hash != wantHash {
+		t.Errorf("block at fromBlock should be deleted, got hash %s", hash.Hex())
+	}
+}
+
+// ---------- Bid helpers ----------
+
+// makeBid builds a Bid with sensible defaults for the given chain, auction
+// address, block number, and log index. Callers can override fields after
+// creation (e.g. Owner, PriceQ96).
+func makeBid(chainID int64, auctionAddr common.Address, id, blockNumber uint64, logIndex uint) *cca.Bid {
+	return &cca.Bid{
+		ID:             id,
+		Owner:          common.HexToAddress("0xBidder0000000000000000000000000000000001"),
+		PriceQ96:       big.NewInt(200),
+		Amount:         big.NewInt(5000),
+		AuctionAddress: auctionAddr,
+		ChainID:        chainID,
+		BlockNumber:    blockNumber,
+		BlockTime:      time.Date(2025, 7, 1, 12, 0, 0, 0, time.UTC),
+		TxHash:         common.HexToHash("0xbidTxHash"),
+		LogIndex:       logIndex,
+	}
+}
+
+// ---------- Bid tests ----------
+
+// TestBid_Insert_ListByAuction_RoundTrip verifies that inserting a bid via
+// BidRepo().Insert persists all fields and that ListByAuction retrieves the
+// bid with correct values. This is the fundamental read-after-write test.
+func TestBid_Insert_ListByAuction_RoundTrip(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xAuction0000000000000000000000000000000001")
+	bid := makeBid(chainID, auctionAddr, 1, 100, 0)
+	// Use a large PriceQ96 to exercise NUMERIC round-trip.
+	bid.PriceQ96, _ = new(big.Int).SetString("79228162514264337593543950336", 10)
+	bid.Amount, _ = new(big.Int).SetString("1000000000000000000", 10)
+
+	err := s.BidRepo().Insert(ctx, bid)
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	addr := lowerHex(auctionAddr)
+	params := store.PaginationParams{Limit: 10}
+	bids, err := s.BidRepo().ListByAuction(ctx, chainID, addr, params)
+	if err != nil {
+		t.Fatalf("ListByAuction: %v", err)
+	}
+
+	wantCount := 1
+	if len(bids) != wantCount {
+		t.Fatalf("expected %d bid(s), got %d", wantCount, len(bids))
+	}
+
+	got := bids[0]
+	wantID := uint64(1)
+	if got.ID != wantID {
+		t.Errorf("ID: got %d, want %d", got.ID, wantID)
+	}
+	wantOwner := bid.Owner
+	if got.Owner != wantOwner {
+		t.Errorf("Owner: got %s, want %s", got.Owner.Hex(), wantOwner.Hex())
+	}
+	if got.PriceQ96.Cmp(bid.PriceQ96) != 0 {
+		t.Errorf("PriceQ96: got %s, want %s", got.PriceQ96.String(), bid.PriceQ96.String())
+	}
+	if got.Amount.Cmp(bid.Amount) != 0 {
+		t.Errorf("Amount: got %s, want %s", got.Amount.String(), bid.Amount.String())
+	}
+	wantAuctionAddr := bid.AuctionAddress
+	if got.AuctionAddress != wantAuctionAddr {
+		t.Errorf("AuctionAddress: got %s, want %s", got.AuctionAddress.Hex(), wantAuctionAddr.Hex())
+	}
+	wantChainID := chainID
+	if got.ChainID != wantChainID {
+		t.Errorf("ChainID: got %d, want %d", got.ChainID, wantChainID)
+	}
+	wantBlockNumber := uint64(100)
+	if got.BlockNumber != wantBlockNumber {
+		t.Errorf("BlockNumber: got %d, want %d", got.BlockNumber, wantBlockNumber)
+	}
+	wantBlockTime := bid.BlockTime
+	if !got.BlockTime.Equal(wantBlockTime) {
+		t.Errorf("BlockTime: got %v, want %v", got.BlockTime, wantBlockTime)
+	}
+	wantTxHash := bid.TxHash
+	if got.TxHash != wantTxHash {
+		t.Errorf("TxHash: got %s, want %s", got.TxHash.Hex(), wantTxHash.Hex())
+	}
+	wantLogIndex := uint(0)
+	if got.LogIndex != wantLogIndex {
+		t.Errorf("LogIndex: got %d, want %d", got.LogIndex, wantLogIndex)
+	}
+}
+
+// TestBid_ListByAuction_DescendingWithPagination verifies that ListByAuction
+// returns bids in descending block_number order and supports cursor-based
+// pagination. Inserts three bids at different blocks and fetches them in two
+// pages to confirm ordering and cursor behavior.
+func TestBid_ListByAuction_DescendingWithPagination(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xAuction0000000000000000000000000000000002")
+	addr := lowerHex(auctionAddr)
+
+	// Insert three bids at blocks 100, 200, 300.
+	for i, blockNum := range []uint64{100, 200, 300} {
+		bid := makeBid(chainID, auctionAddr, uint64(i+1), blockNum, uint(i))
+		err := s.BidRepo().Insert(ctx, bid)
+		if err != nil {
+			t.Fatalf("Insert bid %d: %v", i, err)
+		}
+	}
+
+	// First page: limit 2, no cursor. Should return bids at blocks 300, 200.
+	firstPageParams := store.PaginationParams{Limit: 2}
+	page1, err := s.BidRepo().ListByAuction(ctx, chainID, addr, firstPageParams)
+	if err != nil {
+		t.Fatalf("ListByAuction page 1: %v", err)
+	}
+
+	wantPage1Len := 2
+	if len(page1) != wantPage1Len {
+		t.Fatalf("page 1: expected %d bids, got %d", wantPage1Len, len(page1))
+	}
+
+	wantFirstBlock := uint64(300)
+	wantSecondBlock := uint64(200)
+	if page1[0].BlockNumber != wantFirstBlock {
+		t.Errorf("page 1[0].BlockNumber: got %d, want %d", page1[0].BlockNumber, wantFirstBlock)
+	}
+	if page1[1].BlockNumber != wantSecondBlock {
+		t.Errorf("page 1[1].BlockNumber: got %d, want %d", page1[1].BlockNumber, wantSecondBlock)
+	}
+
+	// Second page: cursor after the last item from page 1.
+	cursorBlock := page1[1].BlockNumber
+	cursorLog := page1[1].LogIndex
+	secondPageParams := store.PaginationParams{
+		Limit:             2,
+		CursorBlockNumber: &cursorBlock,
+		CursorLogIndex:    &cursorLog,
+	}
+	page2, err := s.BidRepo().ListByAuction(ctx, chainID, addr, secondPageParams)
+	if err != nil {
+		t.Fatalf("ListByAuction page 2: %v", err)
+	}
+
+	wantPage2Len := 1
+	if len(page2) != wantPage2Len {
+		t.Fatalf("page 2: expected %d bid(s), got %d", wantPage2Len, len(page2))
+	}
+
+	wantThirdBlock := uint64(100)
+	if page2[0].BlockNumber != wantThirdBlock {
+		t.Errorf("page 2[0].BlockNumber: got %d, want %d", page2[0].BlockNumber, wantThirdBlock)
+	}
+}
+
+// TestBid_ListByAuctionAndOwner_FiltersOwner verifies that
+// ListByAuctionAndOwner returns only bids matching the specified owner address.
+// Inserts two bids from different owners for the same auction and asserts that
+// filtering by one owner returns exactly one bid with the correct data.
+func TestBid_ListByAuctionAndOwner_FiltersOwner(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xAuction0000000000000000000000000000000003")
+	addr := lowerHex(auctionAddr)
+
+	ownerA := common.HexToAddress("0xOwnerA00000000000000000000000000000000001")
+	ownerB := common.HexToAddress("0xOwnerB00000000000000000000000000000000002")
+
+	bidA := makeBid(chainID, auctionAddr, 1, 100, 0)
+	bidA.Owner = ownerA
+
+	bidB := makeBid(chainID, auctionAddr, 2, 200, 1)
+	bidB.Owner = ownerB
+
+	err := s.BidRepo().Insert(ctx, bidA)
+	if err != nil {
+		t.Fatalf("Insert bidA: %v", err)
+	}
+	err = s.BidRepo().Insert(ctx, bidB)
+	if err != nil {
+		t.Fatalf("Insert bidB: %v", err)
+	}
+
+	params := store.PaginationParams{Limit: 10}
+	bids, err := s.BidRepo().ListByAuctionAndOwner(ctx, chainID, addr, lowerHex(ownerA), params)
+	if err != nil {
+		t.Fatalf("ListByAuctionAndOwner: %v", err)
+	}
+
+	wantCount := 1
+	if len(bids) != wantCount {
+		t.Fatalf("expected %d bid(s), got %d", wantCount, len(bids))
+	}
+
+	wantOwner := ownerA
+	if bids[0].Owner != wantOwner {
+		t.Errorf("Owner: got %s, want %s", bids[0].Owner.Hex(), wantOwner.Hex())
+	}
+
+	wantBlock := uint64(100)
+	if bids[0].BlockNumber != wantBlock {
+		t.Errorf("BlockNumber: got %d, want %d", bids[0].BlockNumber, wantBlock)
+	}
+}
+
+// TestBid_GetPrevTickPrice_ReturnsLargestPriceBelow verifies that
+// GetPrevTickPrice returns the largest distinct price_q96 strictly less than
+// maxPrice. This uses NUMERIC comparison, so prices 100, 200, 300 with
+// maxPrice=250 should return "200".
+func TestBid_GetPrevTickPrice_ReturnsLargestPriceBelow(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xAuction0000000000000000000000000000000004")
+	addr := lowerHex(auctionAddr)
+
+	// Insert bids with prices 100, 200, 300.
+	prices := []int64{100, 200, 300}
+	for i, price := range prices {
+		bid := makeBid(chainID, auctionAddr, uint64(i+1), uint64(100+i), uint(i))
+		bid.PriceQ96 = big.NewInt(price)
+		err := s.BidRepo().Insert(ctx, bid)
+		if err != nil {
+			t.Fatalf("Insert bid with price %d: %v", price, err)
+		}
+	}
+
+	// maxPrice=250 should return "200" (largest price < 250).
+	maxPrice := "250"
+	wantPrice := "200"
+	got, err := s.BidRepo().GetPrevTickPrice(ctx, chainID, addr, maxPrice)
+	if err != nil {
+		t.Fatalf("GetPrevTickPrice: %v", err)
+	}
+	if got != wantPrice {
+		t.Errorf("GetPrevTickPrice: got %q, want %q", got, wantPrice)
+	}
+}
+
+// TestBid_GetPrevTickPrice_EmptyWhenNoPriceBelow verifies that GetPrevTickPrice
+// returns an empty string when no bid price exists strictly below the given
+// maxPrice. This is the boundary case where all prices are >= maxPrice.
+func TestBid_GetPrevTickPrice_EmptyWhenNoPriceBelow(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xAuction0000000000000000000000000000000005")
+	addr := lowerHex(auctionAddr)
+
+	// Insert bids with prices 500 and 600.
+	for i, price := range []int64{500, 600} {
+		bid := makeBid(chainID, auctionAddr, uint64(i+1), uint64(100+i), uint(i))
+		bid.PriceQ96 = big.NewInt(price)
+		err := s.BidRepo().Insert(ctx, bid)
+		if err != nil {
+			t.Fatalf("Insert bid with price %d: %v", price, err)
+		}
+	}
+
+	// maxPrice=500 means strictly less than 500; no bids qualify.
+	maxPrice := "500"
+	wantPrice := ""
+	got, err := s.BidRepo().GetPrevTickPrice(ctx, chainID, addr, maxPrice)
+	if err != nil {
+		t.Fatalf("GetPrevTickPrice: %v", err)
+	}
+	if got != wantPrice {
+		t.Errorf("GetPrevTickPrice: got %q, want %q (expected empty)", got, wantPrice)
+	}
+}
+
+// TestBid_DeleteFromBlock_RemovesGTE verifies that BidRepo().DeleteFromBlock
+// removes all bids at or after the specified block number, leaving bids at
+// earlier blocks intact.
+func TestBid_DeleteFromBlock_RemovesGTE(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xAuction0000000000000000000000000000000006")
+	addr := lowerHex(auctionAddr)
+
+	// Insert bids at blocks 10, 11, 12.
+	for i, blockNum := range []uint64{10, 11, 12} {
+		bid := makeBid(chainID, auctionAddr, uint64(i+1), blockNum, uint(i))
+		err := s.BidRepo().Insert(ctx, bid)
+		if err != nil {
+			t.Fatalf("Insert bid at block %d: %v", blockNum, err)
+		}
+	}
+
+	// Delete from block 11 — should remove bids at 11 and 12.
+	err := s.BidRepo().DeleteFromBlock(ctx, chainID, 11)
+	if err != nil {
+		t.Fatalf("DeleteFromBlock: %v", err)
+	}
+
+	params := store.PaginationParams{Limit: 10}
+	remaining, err := s.BidRepo().ListByAuction(ctx, chainID, addr, params)
+	if err != nil {
+		t.Fatalf("ListByAuction after delete: %v", err)
+	}
+
+	// Only the bid at block 10 should remain.
+	wantCount := 1
+	if len(remaining) != wantCount {
+		t.Fatalf("expected %d bid(s) after delete, got %d", wantCount, len(remaining))
+	}
+
+	wantBlock := uint64(10)
+	if remaining[0].BlockNumber != wantBlock {
+		t.Errorf("remaining bid BlockNumber: got %d, want %d", remaining[0].BlockNumber, wantBlock)
+	}
+}
+
+// TestRollbackFromBlock_IncludesBids verifies that the pgStore-level
+// RollbackFromBlock method also deletes bid records at or after the rollback
+// block, in addition to raw events, auctions, checkpoints, blocks, and watched
+// contract cursors. This is an end-to-end integration test ensuring the
+// rollback cascade covers bids for reorg recovery.
+func TestRollbackFromBlock_IncludesBids(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	auctionAddr := common.HexToAddress("0xAuction0000000000000000000000000000000007")
+	addr := lowerHex(auctionAddr)
+
+	// Insert a bid at block 300 (at the rollback point, should be deleted).
+	bidAtRollback := makeBid(chainID, auctionAddr, 1, 300, 0)
+	// Insert a bid at block 200 (below the rollback point, should survive).
+	bidBelow := makeBid(chainID, auctionAddr, 2, 200, 1)
+
+	err := s.BidRepo().Insert(ctx, bidAtRollback)
+	if err != nil {
+		t.Fatalf("Insert bid at rollback: %v", err)
+	}
+	err = s.BidRepo().Insert(ctx, bidBelow)
+	if err != nil {
+		t.Fatalf("Insert bid below rollback: %v", err)
+	}
+
+	// Also insert a block and raw event so we exercise the full cascade.
+	fromBlock := uint64(300)
+	_ = s.BlockRepo().Insert(ctx, chainID, fromBlock, common.HexToHash("0xbidrollbackblock"), common.HexToHash("0xparent"))
+	_ = s.RawEventRepo().Insert(ctx, makeRawEvent(chainID, fromBlock, 0))
+
+	ps := s.(*pgStore)
+	err = ps.RollbackFromBlock(ctx, chainID, fromBlock)
+	if err != nil {
+		t.Fatalf("RollbackFromBlock: %v", err)
+	}
+
+	// The bid at block 300 should be deleted.
+	// The bid at block 200 should survive.
+	params := store.PaginationParams{Limit: 10}
+	remaining, err := s.BidRepo().ListByAuction(ctx, chainID, addr, params)
+	if err != nil {
+		t.Fatalf("ListByAuction after rollback: %v", err)
+	}
+
+	wantLen := 1
+	if len(remaining) != wantLen {
+		t.Fatalf("expected %d bid(s) after rollback, got %d", wantLen, len(remaining))
+	}
+
+	wantSurvivingBlock := uint64(200)
+	if remaining[0].BlockNumber != wantSurvivingBlock {
+		t.Errorf("surviving bid BlockNumber: got %d, want %d", remaining[0].BlockNumber, wantSurvivingBlock)
 	}
 
 	// Confirm block was also deleted (sanity check for cascade).
