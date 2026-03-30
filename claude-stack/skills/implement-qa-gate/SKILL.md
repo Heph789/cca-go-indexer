@@ -51,8 +51,6 @@ What you need to build: helpers, fixtures, docker-compose setup, seed data, mock
 #### Expected Red Phase Failures
 For each experiment, describe what you expect to happen when run against the previous gate's branch, and why. This forces you to think about what each experiment actually validates.
 
-**Wait for user confirmation before proceeding.**
-
 ### 3. Build
 
 Build the test harness and write all experiments (required + agent-designed).

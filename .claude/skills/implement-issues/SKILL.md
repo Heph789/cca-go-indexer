@@ -23,6 +23,7 @@ Before starting work on an issue, check its state using `gh`:
 - **Closed:** Skip it, move to the next issue.
 - **Has an open or draft PR:** Skip it, move to the next issue.
 - **Labeled `question`:** Stop the entire process and wait for further instruction from the user.
+- **Title starts with `[QA]`:** This is a QA gate issue. Skip the normal implementation steps (2–6) and follow the **QA Gate Handling** section below instead.
 
 ### 1. Mark In-Progress
 
@@ -100,6 +101,28 @@ Do NOT close the issue when creating the draft PR — only after it is merged.
 ### 7. Next
 
 Move on to the next sub-issue.
+
+## QA Gate Handling
+
+When triage identifies a `[QA]` issue, delegate it entirely to a subagent to preserve the main agent's context. The subagent runs the full QA gate process.
+
+### Subagent Setup
+
+Launch a subagent with:
+- The full contents of the `/implement-qa-gate` skill instructions
+- The QA gate issue URL/number
+- The current branch name (so it knows where to create the gate branch)
+- The previous gate branch name (for red-phase verification)
+
+The subagent handles everything: branch creation, test plan design, building the harness, red/green phases, and PR submission.
+
+### After the Subagent Completes
+
+The main agent:
+1. Verifies the gate branch and PR were created
+2. Moves on to the next sub-issue
+
+If the subagent fails, retry it. Do NOT fall back to running the QA gate inline.
 
 ## Restacking After Changes
 
