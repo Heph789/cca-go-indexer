@@ -8,37 +8,31 @@ import (
 	"github.com/cca/go-indexer/internal/indexer/handlers"
 )
 
-// TestRegistry_BothHandlersRegistered verifies that a registry created with
-// both AuctionCreatedHandler and CheckpointUpdatedHandler exposes both event
-// topics in its TopicFilter.
-func TestRegistry_BothHandlersRegistered(t *testing.T) {
+// TestRegistry_AllHandlersRegistered verifies that a registry created with
+// AuctionCreated, BidSubmitted, and CheckpointUpdated handlers exposes all
+// three event topics in its TopicFilter.
+func TestRegistry_AllHandlersRegistered(t *testing.T) {
 	logger := slog.Default()
 
 	auctionHandler := &handlers.AuctionCreatedHandler{}
+	bidHandler := &handlers.BidSubmittedHandler{}
 	checkpointHandler := &handlers.CheckpointUpdatedHandler{}
 
-	registry := indexer.NewRegistry(logger, auctionHandler, checkpointHandler)
+	registry := indexer.NewRegistry(logger, auctionHandler, bidHandler, checkpointHandler)
 
 	topicFilter := registry.TopicFilter()
 
-	// TopicFilter returns [][]common.Hash where the outer slice has exactly one
-	// element (the OR-set for topic0 position).
-	wantOuterLen := 1
-	if len(topicFilter) != wantOuterLen {
-		t.Fatalf("TopicFilter() outer length = %d, want %d", len(topicFilter), wantOuterLen)
+	if len(topicFilter) != 1 {
+		t.Fatalf("TopicFilter() outer length = %d, want 1", len(topicFilter))
 	}
 
-	// The inner slice should contain one topic per registered handler.
-	wantTopicCount := 2
-	gotTopicCount := len(topicFilter[0])
-	if gotTopicCount != wantTopicCount {
-		t.Errorf("TopicFilter()[0] length = %d, want %d", gotTopicCount, wantTopicCount)
+	if len(topicFilter[0]) != 3 {
+		t.Errorf("TopicFilter()[0] length = %d, want 3", len(topicFilter[0]))
 	}
 
-	// Verify the actual topic hashes match the handlers' EventIDs, not just
-	// the count. Build a set of expected topics and check membership.
 	wantTopics := map[string]bool{
 		auctionHandler.EventID().Hex():    true,
+		bidHandler.EventID().Hex():        true,
 		checkpointHandler.EventID().Hex(): true,
 	}
 
@@ -50,7 +44,6 @@ func TestRegistry_BothHandlersRegistered(t *testing.T) {
 		delete(wantTopics, hex)
 	}
 
-	// Any remaining entries in wantTopics are missing from the filter.
 	for missing := range wantTopics {
 		t.Errorf("missing expected topic in filter: %s", missing)
 	}
