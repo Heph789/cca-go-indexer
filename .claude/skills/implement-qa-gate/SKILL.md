@@ -105,7 +105,7 @@ If an experiment fails here:
 
 Follow the same commit and PR process as `/implement-issues`:
 - Commit the final test suite
-- `gt stack submit --draft` to create/update PRs
+- `gt submit --stack` to create/update PRs
 - Link to the QA gate issue with `Addresses #<ISSUE_NUMBER>` in the PR body
 
 ## When Invoked by `/implement-issues`
