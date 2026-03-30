@@ -4,6 +4,11 @@ scalar BigInt
 type Query {
   auction(address: Address!): Auction
   auctions(chainID: Int, first: Int, after: String): AuctionConnection!
+  bidHint(auctionAddress: Address!, maxPrice: BigInt!): BidHintResult!
+}
+
+type BidHintResult {
+  prevTickPrice: BigInt!
 }
 
 type Auction {

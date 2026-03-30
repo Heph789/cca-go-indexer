@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -61,8 +62,10 @@ func (m *mockCheckpointRepo) ListByAuction(_ context.Context, _ int64, _ string,
 	return nil, nil
 }
 
-// mockBidRepo satisfies store.BidRepository with no-op stubs.
-type mockBidRepo struct{}
+// mockBidRepo is a function-pointer mock for store.BidRepository.
+type mockBidRepo struct {
+	GetPrevTickPriceFn func(ctx context.Context, chainID int64, auctionAddress string, maxPrice string) (string, error)
+}
 
 func (m *mockBidRepo) Insert(_ context.Context, _ *cca.Bid) error              { return nil }
 func (m *mockBidRepo) DeleteFromBlock(_ context.Context, _ int64, _ uint64) error { return nil }
@@ -72,25 +75,30 @@ func (m *mockBidRepo) ListByAuction(_ context.Context, _ int64, _ string, _ stor
 func (m *mockBidRepo) ListByAuctionAndOwner(_ context.Context, _ int64, _ string, _ string, _ store.PaginationParams) ([]*cca.Bid, error) {
 	return nil, nil
 }
-func (m *mockBidRepo) GetPrevTickPrice(_ context.Context, _ int64, _ string, _ string) (string, error) {
+func (m *mockBidRepo) GetPrevTickPrice(ctx context.Context, chainID int64, auctionAddress string, maxPrice string) (string, error) {
+	if m.GetPrevTickPriceFn != nil {
+		return m.GetPrevTickPriceFn(ctx, chainID, auctionAddress, maxPrice)
+	}
 	return "", nil
 }
 
 // mockStore wires together the mock repos and satisfies store.Store.
 type mockStore struct {
 	auctionRepo    *mockAuctionRepo
+	bidRepo        *mockBidRepo
 	checkpointRepo *mockCheckpointRepo
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
 		auctionRepo:    &mockAuctionRepo{},
+		bidRepo:        &mockBidRepo{},
 		checkpointRepo: &mockCheckpointRepo{},
 	}
 }
 
 func (m *mockStore) AuctionRepo() store.AuctionRepository       { return m.auctionRepo }
-func (m *mockStore) BidRepo() store.BidRepository               { return &mockBidRepo{} }
+func (m *mockStore) BidRepo() store.BidRepository               { return m.bidRepo }
 func (m *mockStore) CheckpointRepo() store.CheckpointRepository { return m.checkpointRepo }
 func (m *mockStore) WatchedContractRepo() store.WatchedContractRepository {
 	return nil
@@ -456,6 +464,111 @@ func TestAuctionResolver_ClearingPriceQ96(t *testing.T) {
 			}
 			if got.Cmp(tt.wantPrice) != 0 {
 				t.Errorf("ClearingPriceQ96() = %s, want %s", got.String(), tt.wantPrice.String())
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Query.bidHint resolver tests
+// ---------------------------------------------------------------------------
+
+// TestQueryResolver_BidHint tests the bidHint(auctionAddress, maxPrice) query resolver.
+func TestQueryResolver_BidHint(t *testing.T) {
+	auctionAddr := common.HexToAddress("0x1111111111111111111111111111111111111111")
+	maxPrice := big.NewInt(500000)
+	wantPrevTickPrice := big.NewInt(400000)
+	wantFloorPrice := big.NewInt(100000)
+
+	tests := []struct {
+		name             string
+		setupBidRepo     func(repo *mockBidRepo)
+		setupAuctionRepo func(repo *mockAuctionRepo)
+		wantPrice        *big.Int
+		wantErr          bool
+	}{
+		{
+			name: "returns prevTickPrice from bid repo when bid exists below maxPrice",
+			setupBidRepo: func(repo *mockBidRepo) {
+				repo.GetPrevTickPriceFn = func(_ context.Context, _ int64, _ string, _ string) (string, error) {
+					return "400000", nil
+				}
+			},
+			wantPrice: wantPrevTickPrice,
+		},
+		{
+			name: "falls back to auction floorPrice when no bid price exists below maxPrice",
+			setupBidRepo: func(repo *mockBidRepo) {
+				repo.GetPrevTickPriceFn = func(_ context.Context, _ int64, _ string, _ string) (string, error) {
+					return "", nil
+				}
+			},
+			setupAuctionRepo: func(repo *mockAuctionRepo) {
+				repo.GetByAddressFn = func(_ context.Context, _ int64, _ string) (*cca.Auction, error) {
+					return &cca.Auction{
+						AuctionAddress: auctionAddr,
+						FloorPrice:     wantFloorPrice,
+						ChainID:        testChainID,
+					}, nil
+				}
+			},
+			wantPrice: wantFloorPrice,
+		},
+		{
+			name: "returns error when auction not found and no prev tick price",
+			setupBidRepo: func(repo *mockBidRepo) {
+				repo.GetPrevTickPriceFn = func(_ context.Context, _ int64, _ string, _ string) (string, error) {
+					return "", nil
+				}
+			},
+			setupAuctionRepo: func(repo *mockAuctionRepo) {
+				repo.GetByAddressFn = func(_ context.Context, _ int64, _ string) (*cca.Auction, error) {
+					return nil, nil
+				}
+			},
+			wantErr: true,
+		},
+		{
+			name: "returns error when bid repo fails",
+			setupBidRepo: func(repo *mockBidRepo) {
+				repo.GetPrevTickPriceFn = func(_ context.Context, _ int64, _ string, _ string) (string, error) {
+					return "", fmt.Errorf("db connection lost")
+				}
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := newMockStore()
+			if tt.setupBidRepo != nil {
+				tt.setupBidRepo(ms.bidRepo)
+			}
+			if tt.setupAuctionRepo != nil {
+				tt.setupAuctionRepo(ms.auctionRepo)
+			}
+			r := newTestResolver(ms)
+			qr := r.Query()
+
+			got, err := qr.BidHint(context.Background(), auctionAddr, maxPrice)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("BidHint() error = %v", err)
+			}
+			if got == nil {
+				t.Fatal("BidHint() returned nil result")
+			}
+			if got.PrevTickPrice == nil {
+				t.Fatal("BidHint().PrevTickPrice is nil, want non-nil")
+			}
+			if got.PrevTickPrice.Cmp(tt.wantPrice) != 0 {
+				t.Errorf("BidHint().PrevTickPrice = %s, want %s", got.PrevTickPrice.String(), tt.wantPrice.String())
 			}
 		})
 	}
