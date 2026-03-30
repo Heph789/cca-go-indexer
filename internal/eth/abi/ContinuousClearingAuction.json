@@ -1,0 +1,23 @@
+[
+  {
+    "type": "event",
+    "name": "BidSubmitted",
+    "inputs": [
+      {"name": "id", "type": "uint256", "indexed": true, "internalType": "uint256"},
+      {"name": "owner", "type": "address", "indexed": true, "internalType": "address"},
+      {"name": "price", "type": "uint256", "indexed": false, "internalType": "uint256"},
+      {"name": "amount", "type": "uint128", "indexed": false, "internalType": "uint128"}
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "CheckpointUpdated",
+    "inputs": [
+      {"name": "blockNumber", "type": "uint256", "indexed": false, "internalType": "uint256"},
+      {"name": "clearingPrice", "type": "uint256", "indexed": false, "internalType": "uint256"},
+      {"name": "cumulativeMps", "type": "uint24", "indexed": false, "internalType": "uint24"}
+    ],
+    "anonymous": false
+  }
+]
