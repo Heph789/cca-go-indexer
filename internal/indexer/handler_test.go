@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -297,7 +298,7 @@ func TestHandlerRegistry_HandleLogs(t *testing.T) {
 				&mockBatchHandler{
 					eventName: "Failing",
 					eventID:   topicA,
-					HandleLogsFn: func(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error {
+					HandleLogsFn: func(ctx context.Context, chainID int64, logs []types.Log, blockTimes map[uint64]time.Time, s store.Store) error {
 						return errSentinel
 					},
 				},
@@ -314,7 +315,11 @@ func TestHandlerRegistry_HandleLogs(t *testing.T) {
 			s := newMockStore()
 
 			chainID := int64(1)
-			err := registry.HandleLogs(context.Background(), chainID, tt.inputLogs, s)
+			blockTimes := make(map[uint64]time.Time)
+			for _, l := range tt.inputLogs {
+				blockTimes[l.BlockNumber] = time.Unix(0, 0).UTC()
+			}
+			err := registry.HandleLogs(context.Background(), chainID, tt.inputLogs, blockTimes, s)
 
 			if tt.wantErr {
 				if err == nil {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -65,7 +66,7 @@ func mustABIType(t string) abi.Type {
 	return typ
 }
 
-func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
+func (h *AuctionCreatedHandler) Handle(ctx context.Context, chainID int64, log types.Log, blockTime time.Time, s store.Store) error {
 	if len(log.Topics) < 3 {
 		return fmt.Errorf("expected 3 topics, got %d", len(log.Topics))
 	}

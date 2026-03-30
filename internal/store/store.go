@@ -11,6 +11,8 @@ import (
 // Store provides access to all domain repositories and transactional writes.
 type Store interface {
 	AuctionRepo() AuctionRepository
+	BidRepo() BidRepository
+	CheckpointRepo() CheckpointRepository
 	WatchedContractRepo() WatchedContractRepository
 	RawEventRepo() RawEventRepository
 	CursorRepo() CursorRepository
@@ -65,4 +67,28 @@ type BlockRepository interface {
 	Insert(ctx context.Context, chainID int64, blockNumber uint64, blockHash, parentHash common.Hash) error
 	GetHash(ctx context.Context, chainID int64, blockNumber uint64) (common.Hash, error)
 	DeleteFrom(ctx context.Context, chainID int64, fromBlock uint64) error
+}
+
+// PaginationParams controls cursor-based pagination for list queries.
+type PaginationParams struct {
+	Limit             int
+	CursorBlockNumber *uint64
+	CursorLogIndex    *uint
+}
+
+// BidRepository persists and queries CCA bid records.
+type BidRepository interface {
+	Insert(ctx context.Context, bid *cca.Bid) error
+	DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error
+	ListByAuction(ctx context.Context, chainID int64, auctionAddress string, params PaginationParams) ([]*cca.Bid, error)
+	ListByAuctionAndOwner(ctx context.Context, chainID int64, auctionAddress string, owner string, params PaginationParams) ([]*cca.Bid, error)
+	GetPrevTickPrice(ctx context.Context, chainID int64, auctionAddress string, maxPrice string) (string, error)
+}
+
+// CheckpointRepository persists and queries CCA checkpoint records.
+type CheckpointRepository interface {
+	Insert(ctx context.Context, checkpoint *cca.Checkpoint) error
+	DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error
+	GetLatest(ctx context.Context, chainID int64, auctionAddress string) (*cca.Checkpoint, error)
+	ListByAuction(ctx context.Context, chainID int64, auctionAddress string, params PaginationParams) ([]*cca.Checkpoint, error)
 }

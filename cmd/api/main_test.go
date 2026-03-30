@@ -19,6 +19,8 @@ type mockStore struct {
 }
 
 func (m *mockStore) AuctionRepo() store.AuctionRepository             { return nil }
+func (m *mockStore) BidRepo() store.BidRepository                     { return nil }
+func (m *mockStore) CheckpointRepo() store.CheckpointRepository       { return nil }
 func (m *mockStore) RawEventRepo() store.RawEventRepository           { return nil }
 func (m *mockStore) CursorRepo() store.CursorRepository               { return nil }
 func (m *mockStore) BlockRepo() store.BlockRepository                 { return nil }

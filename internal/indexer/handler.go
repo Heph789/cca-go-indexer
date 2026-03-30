@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -20,7 +21,7 @@ var ErrNoTopics = errors.New("log has no topics")
 type EventHandler interface {
 	EventName() string
 	EventID() common.Hash
-	Handle(ctx context.Context, chainID int64, log types.Log, s store.Store) error
+	Handle(ctx context.Context, chainID int64, log types.Log, blockTime time.Time, s store.Store) error
 }
 
 // HandlerRegistry maps event topic0 hashes to their corresponding EventHandler
@@ -57,14 +58,14 @@ func (r *HandlerRegistry) TopicFilter() [][]common.Hash {
 // call instead of individual Handle calls, enabling batch store operations.
 type BatchEventHandler interface {
 	EventHandler
-	HandleLogs(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error
+	HandleLogs(ctx context.Context, chainID int64, logs []types.Log, blockTimes map[uint64]time.Time, s store.Store) error
 }
 
 // HandleLogs groups logs by topic0 and dispatches each group to the
 // corresponding handler. Handlers implementing BatchEventHandler receive all
 // their logs in a single call; plain EventHandler implementations fall back to
 // per-log Handle calls. Logs within each group preserve their original order.
-func (r *HandlerRegistry) HandleLogs(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error {
+func (r *HandlerRegistry) HandleLogs(ctx context.Context, chainID int64, logs []types.Log, blockTimes map[uint64]time.Time, s store.Store) error {
 	if len(logs) == 0 {
 		return nil
 	}
@@ -100,7 +101,7 @@ func (r *HandlerRegistry) HandleLogs(ctx context.Context, chainID int64, logs []
 
 		// Prefer the batch path when the handler supports it.
 		if bh, isBatch := handler.(BatchEventHandler); isBatch {
-			if err := bh.HandleLogs(ctx, chainID, g.logs, s); err != nil {
+			if err := bh.HandleLogs(ctx, chainID, g.logs, blockTimes, s); err != nil {
 				return fmt.Errorf("batch handler failed: %w", err)
 			}
 			continue
@@ -108,7 +109,7 @@ func (r *HandlerRegistry) HandleLogs(ctx context.Context, chainID int64, logs []
 
 		// Fallback: dispatch each log individually.
 		for _, l := range g.logs {
-			if err := handler.Handle(ctx, chainID, l, s); err != nil {
+			if err := handler.Handle(ctx, chainID, l, blockTimes[l.BlockNumber], s); err != nil {
 				return fmt.Errorf("handling log: %w", err)
 			}
 		}

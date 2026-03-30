@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"math/big"
+	"time"
 
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
@@ -52,6 +53,8 @@ func (m *mockEthClient) Close() {
 
 type mockStore struct {
 	auctionRepo         *mockAuctionRepo
+	bidRepo             *mockBidRepo
+	checkpointRepo      *mockCheckpointRepo
 	rawEventRepo        *mockRawEventRepo
 	cursorRepo          *mockCursorRepo
 	blockRepo           *mockBlockRepo
@@ -64,6 +67,8 @@ type mockStore struct {
 func newMockStore() *mockStore {
 	return &mockStore{
 		auctionRepo:         &mockAuctionRepo{},
+		bidRepo:             &mockBidRepo{},
+		checkpointRepo:      &mockCheckpointRepo{},
 		rawEventRepo:        &mockRawEventRepo{},
 		cursorRepo:          &mockCursorRepo{},
 		blockRepo:           &mockBlockRepo{},
@@ -72,6 +77,8 @@ func newMockStore() *mockStore {
 }
 
 func (m *mockStore) AuctionRepo() store.AuctionRepository             { return m.auctionRepo }
+func (m *mockStore) BidRepo() store.BidRepository                     { return m.bidRepo }
+func (m *mockStore) CheckpointRepo() store.CheckpointRepository       { return m.checkpointRepo }
 func (m *mockStore) RawEventRepo() store.RawEventRepository           { return m.rawEventRepo }
 func (m *mockStore) CursorRepo() store.CursorRepository               { return m.cursorRepo }
 func (m *mockStore) BlockRepo() store.BlockRepository                 { return m.blockRepo }
@@ -85,6 +92,8 @@ func (m *mockStore) WithTx(ctx context.Context, fn func(txStore store.Store) err
 	}
 	txStore := &mockStore{
 		auctionRepo:         m.auctionRepo,
+		bidRepo:             m.bidRepo,
+		checkpointRepo:      m.checkpointRepo,
 		rawEventRepo:        m.rawEventRepo,
 		cursorRepo:          m.cursorRepo,
 		blockRepo:           m.blockRepo,
@@ -101,6 +110,12 @@ func (m *mockStore) RollbackFromBlock(ctx context.Context, chainID int64, fromBl
 		return err
 	}
 	if err := m.auctionRepo.DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
+		return err
+	}
+	if err := m.bidRepo.DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
+		return err
+	}
+	if err := m.checkpointRepo.DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
 		return err
 	}
 	if err := m.watchedContractRepo.RollbackCursors(ctx, chainID, fromBlock); err != nil {
@@ -220,6 +235,68 @@ func (m *mockBlockRepo) DeleteFrom(ctx context.Context, chainID int64, fromBlock
 	return nil
 }
 
+// --- mockBidRepo ---
+
+type mockBidRepo struct {
+	InsertFn          func(ctx context.Context, bid *cca.Bid) error
+	DeleteFromBlockFn func(ctx context.Context, chainID int64, fromBlock uint64) error
+}
+
+func (m *mockBidRepo) Insert(ctx context.Context, bid *cca.Bid) error {
+	if m.InsertFn != nil {
+		return m.InsertFn(ctx, bid)
+	}
+	return nil
+}
+
+func (m *mockBidRepo) DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error {
+	if m.DeleteFromBlockFn != nil {
+		return m.DeleteFromBlockFn(ctx, chainID, fromBlock)
+	}
+	return nil
+}
+
+func (m *mockBidRepo) ListByAuction(_ context.Context, _ int64, _ string, _ store.PaginationParams) ([]*cca.Bid, error) {
+	return nil, nil
+}
+
+func (m *mockBidRepo) ListByAuctionAndOwner(_ context.Context, _ int64, _ string, _ string, _ store.PaginationParams) ([]*cca.Bid, error) {
+	return nil, nil
+}
+
+func (m *mockBidRepo) GetPrevTickPrice(_ context.Context, _ int64, _ string, _ string) (string, error) {
+	return "", nil
+}
+
+// --- mockCheckpointRepo ---
+
+type mockCheckpointRepo struct {
+	InsertFn          func(ctx context.Context, checkpoint *cca.Checkpoint) error
+	DeleteFromBlockFn func(ctx context.Context, chainID int64, fromBlock uint64) error
+}
+
+func (m *mockCheckpointRepo) Insert(ctx context.Context, checkpoint *cca.Checkpoint) error {
+	if m.InsertFn != nil {
+		return m.InsertFn(ctx, checkpoint)
+	}
+	return nil
+}
+
+func (m *mockCheckpointRepo) DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error {
+	if m.DeleteFromBlockFn != nil {
+		return m.DeleteFromBlockFn(ctx, chainID, fromBlock)
+	}
+	return nil
+}
+
+func (m *mockCheckpointRepo) GetLatest(_ context.Context, _ int64, _ string) (*cca.Checkpoint, error) {
+	return nil, nil
+}
+
+func (m *mockCheckpointRepo) ListByAuction(_ context.Context, _ int64, _ string, _ store.PaginationParams) ([]*cca.Checkpoint, error) {
+	return nil, nil
+}
+
 // --- mockWatchedContractRepo ---
 
 type mockWatchedContractRepo struct {
@@ -270,17 +347,17 @@ func (m *mockWatchedContractRepo) RollbackCursors(ctx context.Context, chainID i
 type mockHandler struct {
 	eventName string
 	eventID   common.Hash
-	HandleFn  func(ctx context.Context, chainID int64, log types.Log, s store.Store) error
+	HandleFn  func(ctx context.Context, chainID int64, log types.Log, blockTime time.Time, s store.Store) error
 	calls     []types.Log
 }
 
 func (m *mockHandler) EventName() string    { return m.eventName }
 func (m *mockHandler) EventID() common.Hash { return m.eventID }
 
-func (m *mockHandler) Handle(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
+func (m *mockHandler) Handle(ctx context.Context, chainID int64, log types.Log, blockTime time.Time, s store.Store) error {
 	m.calls = append(m.calls, log)
 	if m.HandleFn != nil {
-		return m.HandleFn(ctx, chainID, log, s)
+		return m.HandleFn(ctx, chainID, log, blockTime, s)
 	}
 	return nil
 }
@@ -292,8 +369,8 @@ func (m *mockHandler) Handle(ctx context.Context, chainID int64, log types.Log, 
 type mockBatchHandler struct {
 	eventName    string
 	eventID      common.Hash
-	HandleFn     func(ctx context.Context, chainID int64, log types.Log, s store.Store) error
-	HandleLogsFn func(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error
+	HandleFn     func(ctx context.Context, chainID int64, log types.Log, blockTime time.Time, s store.Store) error
+	HandleLogsFn func(ctx context.Context, chainID int64, logs []types.Log, blockTimes map[uint64]time.Time, s store.Store) error
 	// calls tracks individual Handle invocations (single-log fallback).
 	calls []types.Log
 	// batchCalls tracks HandleLogs invocations (batch path).
@@ -303,18 +380,18 @@ type mockBatchHandler struct {
 func (m *mockBatchHandler) EventName() string    { return m.eventName }
 func (m *mockBatchHandler) EventID() common.Hash { return m.eventID }
 
-func (m *mockBatchHandler) Handle(ctx context.Context, chainID int64, log types.Log, s store.Store) error {
+func (m *mockBatchHandler) Handle(ctx context.Context, chainID int64, log types.Log, blockTime time.Time, s store.Store) error {
 	m.calls = append(m.calls, log)
 	if m.HandleFn != nil {
-		return m.HandleFn(ctx, chainID, log, s)
+		return m.HandleFn(ctx, chainID, log, blockTime, s)
 	}
 	return nil
 }
 
-func (m *mockBatchHandler) HandleLogs(ctx context.Context, chainID int64, logs []types.Log, s store.Store) error {
+func (m *mockBatchHandler) HandleLogs(ctx context.Context, chainID int64, logs []types.Log, blockTimes map[uint64]time.Time, s store.Store) error {
 	m.batchCalls = append(m.batchCalls, logs)
 	if m.HandleLogsFn != nil {
-		return m.HandleLogsFn(ctx, chainID, logs, s)
+		return m.HandleLogsFn(ctx, chainID, logs, blockTimes, s)
 	}
 	return nil
 }
