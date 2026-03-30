@@ -74,6 +74,10 @@ func (m *mockAuctionRepo) GetByAddress(ctx context.Context, chainID int64, aucti
 	return nil, nil
 }
 
+func (m *mockAuctionRepo) List(ctx context.Context, chainID int64, params store.PaginationParams) ([]*cca.Auction, error) {
+	return nil, nil
+}
+
 type mockRawEventRepo struct {
 	InsertFn          func(ctx context.Context, event *cca.RawEvent) error
 	InsertedEvent     *cca.RawEvent

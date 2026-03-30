@@ -3,10 +3,12 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 
 	"github.com/cca/go-indexer/internal/domain/cca"
+	"github.com/cca/go-indexer/internal/store"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/jackc/pgx/v5"
 )
@@ -119,4 +121,9 @@ func (r *auctionRepo) GetByAddress(ctx context.Context, chainID int64, auctionAd
 		TxHash:                 common.HexToHash(txHash),
 		LogIndex:               logIndex,
 	}, nil
+}
+
+// List returns auctions ordered by (block_number, log_index) descending with cursor-based pagination.
+func (r *auctionRepo) List(ctx context.Context, chainID int64, params store.PaginationParams) ([]*cca.Auction, error) {
+	return nil, fmt.Errorf("auctionRepo.List: not yet implemented")
 }

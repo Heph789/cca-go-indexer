@@ -37,6 +37,10 @@ func (m *mockAuctionRepo) GetByAddress(ctx context.Context, chainID int64, aucti
 	return nil, nil
 }
 
+func (m *mockAuctionRepo) List(ctx context.Context, chainID int64, params store.PaginationParams) ([]*cca.Auction, error) {
+	return nil, nil
+}
+
 type mockStore struct {
 	auctionRepo *mockAuctionRepo
 	PingFn      func(ctx context.Context) error

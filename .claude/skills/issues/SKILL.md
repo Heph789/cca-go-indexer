@@ -9,7 +9,7 @@ disable-model-invocation: true
 
 Generate a **markdown issue plan** from a scaffold and its associated docs for the changes on this branch compared to its base branch. If this branch is named <BASE>-/scaffold-<VERSION>, then the base branch is named <BASE>
 
-These issues are to be implemented one at a time, each one scoped to a single, testable, reviewable, PR. The branch name format should be <BASE>/<SHORT_ISSUE_NAME>-<IMPLEMENTATION_VERSION>
+These issues are to be implemented one at a time, each one scoped to a single, testable, reviewable, PR. The branch name format should be <BASE>-/<SHORT_ISSUE_NAME>-<IMPLEMENTATION_VERSION>
 
 The iteration version is to organize different implementation attempts of the same issue
 
@@ -100,18 +100,22 @@ The last issue of each phase is an **Automated QA** issue. Mark these with `[DRA
 ```markdown
 ## N. [DRAFT] Automated QA: <phase name> verification
 
-### Description / Requirements
-<What this gate should verify — e.g., "This gate verifies the entire happy path works end-to-end. Should cover: indexer writes events, API reads them, all unit tests pass in CI.">
+### Phase Goals
+What outcomes this phase was supposed to deliver, stated as observable behaviors (not code changes). E.g., "Indexer discovers new contracts via factory events and begins polling them for domain events."
+
+### Constraints
+What the system should NOT do at this phase. E.g., "No retry logic, no reorg handling, no error recovery — those are Phase 2."
+
+### Required Verifications
+Specific end-to-end scenarios that MUST be tested. Each should be one sentence describing an observable assertion. E.g.:
+- Indexer picks up a BidSubmitted event and persists a Bid record with correct fields
+- API returns bids filtered by auction address
+
+### Previous Gate
+The branch to check out for red-phase verification. For the first gate this is the parent/scaffold branch; for subsequent gates it is the previous gate's branch. E.g., `bid-auction-1-/qa-watched-contracts-1`
 
 ### Branch name
 ...
-
-### Unit Tests (TDD)
-- All unit tests from issues X–Y pass
-- CI pipeline runs all tests and reports green
-
-### Integration Tests
-- <end-to-end checks specific to this phase>
 
 ### Blocked by
 <last implementation issue of this phase>
