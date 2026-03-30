@@ -2144,6 +2144,205 @@ func TestIndexer_BackfillContractJoinsCaughtUpAfterCompletion(t *testing.T) {
 // TestIndexer_BackfillProcessesOneBatchPerCycleThenYields verifies that backfill
 // processes at most BlockBatchSize blocks per contract per cycle, not the entire
 // range, so forward polling is not blocked.
+// TestIndexer_ReorgMidRunResumeFromAncestor verifies that when a reorg is
+// detected during the main polling loop, the indexer rolls back to the common
+// ancestor and then resumes forward indexing from that ancestor. We assert this
+// by capturing the FromBlock of the FilterLogs call that happens immediately
+// after the reorg handling completes — it should be ancestor + 1.
+func TestIndexer_ReorgMidRunResumeFromAncestor(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	// Start with cursor at block 50.
+	s.cursorRepo.GetFn = func(_ context.Context, _ int64) (uint64, common.Hash, error) {
+		return 50, common.HexToHash("0xabc"), nil
+	}
+
+	ethClient.BlockNumberFn = func(_ context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	// Ancestor at block 48: blocks 49 and 50 are reorged away.
+	ancestorBlock := uint64(48)
+	ancestorHeader := &types.Header{Number: big.NewInt(int64(ancestorBlock)), Nonce: types.BlockNonce{48}}
+	block49Header := &types.Header{Number: big.NewInt(49), Nonce: types.BlockNonce{49}}
+	block50Header := &types.Header{Number: big.NewInt(50), Nonce: types.BlockNonce{50}}
+
+	ethClient.HeaderByNumberFn = func(_ context.Context, n *big.Int) (*types.Header, error) {
+		switch n.Uint64() {
+		case 48:
+			return ancestorHeader, nil
+		case 49:
+			return block49Header, nil
+		case 50:
+			return block50Header, nil
+		default:
+			// For forward-indexing header fetches after the reorg.
+			return &types.Header{
+				Number:     n,
+				ParentHash: common.HexToHash("0xparent"),
+			}, nil
+		}
+	}
+
+	// Stored hash for block 50 differs from on-chain (triggers reorg detection).
+	// Stored hash for block 49 also differs (still reorged).
+	// Stored hash for block 48 matches (common ancestor).
+	staleHash := common.HexToHash("0xdead000000000000000000000000000000000000000000000000000000000001")
+	s.blockRepo.GetHashFn = func(_ context.Context, _ int64, bn uint64) (common.Hash, error) {
+		switch bn {
+		case 50:
+			return staleHash, nil
+		case 49:
+			return common.HexToHash("0xdead49"), nil
+		case 48:
+			return ancestorHeader.Hash(), nil
+		default:
+			return common.Hash{}, nil
+		}
+	}
+
+	s.cursorRepo.UpsertFn = func(_ context.Context, _ int64, _ uint64, _ common.Hash) error {
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Capture the first FilterLogs call after reorg — it should start from
+	// ancestor + 1 = 49, proving the cursor was reset.
+	var capturedFromBlock uint64
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		capturedFromBlock = q.FromBlock.Uint64()
+		cancel()
+		return nil, nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: 10,
+	})
+
+	_ = idx.Run(ctx)
+
+	// After reorg with ancestor=48, the indexer should resume from block 49.
+	wantFromBlock := ancestorBlock + 1
+	if capturedFromBlock != wantFromBlock {
+		t.Fatalf("expected indexer to resume from block %d after reorg, got FromBlock=%d",
+			wantFromBlock, capturedFromBlock)
+	}
+}
+
+// TestIndexer_ReorgRollsBackBackfillContractCursors verifies that when a reorg
+// occurs, the backfill (per-contract) cursors are also rolled back via
+// WatchedContractRepo.RollbackCursors. This is critical because a contract
+// mid-backfill may have indexed data from blocks that are now invalid. After
+// rollback, re-indexing must cover those blocks again.
+func TestIndexer_ReorgRollsBackBackfillContractCursors(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	// Cursor at block 100; a watched contract has been backfilled up to block 95.
+	s.cursorRepo.GetFn = func(_ context.Context, _ int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	ethClient.BlockNumberFn = func(_ context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	// Reorg at block 100, ancestor at 98 (two blocks deep).
+	ancestorBlock := uint64(98)
+	ancestorHeader := &types.Header{Number: big.NewInt(int64(ancestorBlock)), Nonce: types.BlockNonce{98}}
+	block99Header := &types.Header{Number: big.NewInt(99), Nonce: types.BlockNonce{99}}
+	block100Header := &types.Header{Number: big.NewInt(100), Nonce: types.BlockNonce{100}}
+
+	ethClient.HeaderByNumberFn = func(_ context.Context, n *big.Int) (*types.Header, error) {
+		switch n.Uint64() {
+		case 98:
+			return ancestorHeader, nil
+		case 99:
+			return block99Header, nil
+		case 100:
+			return block100Header, nil
+		default:
+			return &types.Header{
+				Number:     n,
+				ParentHash: common.HexToHash("0xparent"),
+			}, nil
+		}
+	}
+
+	// Block 100 stored hash is stale (triggers reorg). Block 99 is also stale.
+	// Block 98 matches the chain (common ancestor).
+	staleHash := common.HexToHash("0xdead000000000000000000000000000000000000000000000000000000000001")
+	s.blockRepo.GetHashFn = func(_ context.Context, _ int64, bn uint64) (common.Hash, error) {
+		switch bn {
+		case 100:
+			return staleHash, nil
+		case 99:
+			return common.HexToHash("0xdead99"), nil
+		case 98:
+			return ancestorHeader.Hash(), nil
+		default:
+			return common.Hash{}, nil
+		}
+	}
+
+	s.cursorRepo.UpsertFn = func(_ context.Context, _ int64, _ uint64, _ common.Hash) error {
+		return nil
+	}
+
+	// Track RollbackCursors calls to verify the backfill cursors are rolled back.
+	var rollbackCursorsCalled bool
+	var rollbackCursorsFromBlock uint64
+	var rollbackCursorsChainID int64
+	s.watchedContractRepo.RollbackCursorsFn = func(_ context.Context, chainID int64, fromBlock uint64) error {
+		rollbackCursorsCalled = true
+		rollbackCursorsFromBlock = fromBlock
+		rollbackCursorsChainID = chainID
+		return nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Cancel on the first FilterLogs call (after reorg recovery) to stop the loop.
+	ethClient.FilterLogsFn = func(_ context.Context, _ ethereum.FilterQuery) ([]types.Log, error) {
+		cancel()
+		return nil, nil
+	}
+
+	wantChainID := int64(1)
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        wantChainID,
+		StartBlock:     1,
+		BlockBatchSize: 10,
+	})
+
+	_ = idx.Run(ctx)
+
+	// RollbackCursors must have been called so that per-contract backfill
+	// cursors are reset and those blocks are re-indexed.
+	if !rollbackCursorsCalled {
+		t.Fatal("expected WatchedContractRepo.RollbackCursors to be called during reorg, " +
+			"so that mid-backfill contract cursors are also rolled back")
+	}
+
+	// rollbackFrom = ancestor(98) + 1 = 99
+	wantRollbackFrom := ancestorBlock + 1
+	if rollbackCursorsFromBlock != wantRollbackFrom {
+		t.Fatalf("expected RollbackCursors called with fromBlock=%d, got %d",
+			wantRollbackFrom, rollbackCursorsFromBlock)
+	}
+
+	if rollbackCursorsChainID != wantChainID {
+		t.Fatalf("expected RollbackCursors called with chainID=%d, got %d",
+			wantChainID, rollbackCursorsChainID)
+	}
+}
+
 func TestIndexer_BackfillProcessesOneBatchPerCycleThenYields(t *testing.T) {
 	ethClient, s, ctx, cancel := setupBackfillTest(t, 100)
 
