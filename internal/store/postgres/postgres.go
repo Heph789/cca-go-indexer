@@ -127,10 +127,8 @@ func (s *pgStore) BidRepo() store.BidRepository {
 	return nil
 }
 
-// CheckpointRepo returns a stub CheckpointRepository. The backing table is
-// created in a later migration (#100); until then callers must not invoke its methods.
 func (s *pgStore) CheckpointRepo() store.CheckpointRepository {
-	return nil
+	return &checkpointRepo{q: s.q()}
 }
 
 func (s *pgStore) RawEventRepo() store.RawEventRepository {
@@ -159,6 +157,9 @@ func (s *pgStore) RollbackFromBlock(ctx context.Context, chainID int64, fromBloc
 	}
 	if _, err := q.Exec(ctx, "DELETE FROM event_ccaf_auction_created WHERE chain_id = $1 AND block_number >= $2", chainID, fromBlock); err != nil {
 		return fmt.Errorf("delete auctions: %w", err)
+	}
+	if err := s.CheckpointRepo().DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
+		return fmt.Errorf("delete checkpoints: %w", err)
 	}
 	if err := s.WatchedContractRepo().RollbackCursors(ctx, chainID, fromBlock); err != nil {
 		return err

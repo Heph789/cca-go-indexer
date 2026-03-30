@@ -50,6 +50,7 @@ func TestRunMigrations_TablesExist(t *testing.T) {
 		"event_ccaf_auction_created",
 		"indexed_blocks",
 		"watched_contracts",
+		"event_cca_checkpoint_updated",
 	}
 
 	ctx := context.Background()

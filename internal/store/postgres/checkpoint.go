@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/cca/go-indexer/internal/domain/cca"
 	"github.com/cca/go-indexer/internal/store"
@@ -100,14 +99,13 @@ func (r *checkpointRepo) ListByAuction(ctx context.Context, chainID int64, aucti
 	argIdx := 3
 
 	if params.CursorBlockNumber != nil && params.CursorLogIndex != nil {
-		query += fmt.Sprintf(" AND (block_number, log_index) < ($%s, $%s)",
-			strconv.Itoa(argIdx), strconv.Itoa(argIdx+1))
+		query += fmt.Sprintf(" AND (block_number, log_index) < ($%d, $%d)", argIdx, argIdx+1)
 		args = append(args, *params.CursorBlockNumber, *params.CursorLogIndex)
 		argIdx += 2
 	}
 
 	query += " ORDER BY block_number DESC, log_index DESC"
-	query += fmt.Sprintf(" LIMIT $%s", strconv.Itoa(argIdx))
+	query += fmt.Sprintf(" LIMIT $%d", argIdx)
 	args = append(args, params.Limit)
 
 	rows, err := r.q.Query(ctx, query, args...)
