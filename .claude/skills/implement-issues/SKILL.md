@@ -1,6 +1,6 @@
 ---
 name: implement-issues
-description: Sequentially implement GitHub sub-issues from a parent issue using TDD (red-green-simplify), creating branches, commits, and draft PRs for each.
+description: Sequentially implement GitHub sub-issues from a parent issue using TDD (red-green-simplify), creating Graphite-tracked branches, commits, and stacked draft PRs for each.
 argument-hint: "GitHub parent issue URL"
 ---
 
@@ -9,6 +9,10 @@ argument-hint: "GitHub parent issue URL"
 Implement the sub-issues of the given parent issue: `$ARGUMENTS`
 
 Work through each sub-issue sequentially in order. Do not combine work from separate issues or parallelize work across issues. A scaffold is referenced in the parent issue — DO NOT COPY IMPLEMENTATION CODE FROM THE SCAFFOLD. It is only a reference for structure and design. Prioritize design decisions already made in implemented code over the scaffold.
+
+## Prerequisites
+
+This skill requires the [Graphite CLI](https://graphite.dev/docs/graphite-cli) (`gt`) to be installed and authenticated. Graphite manages the stacked branch chain, handles cascade rebasing, and submits stacked PRs.
 
 ## Process (per issue)
 
@@ -19,6 +23,7 @@ Before starting work on an issue, check its state using `gh`:
 - **Closed:** Skip it, move to the next issue.
 - **Has an open or draft PR:** Skip it, move to the next issue.
 - **Labeled `question`:** Stop the entire process and wait for further instruction from the user.
+- **Title starts with `[QA]`:** This is a QA gate issue. Skip the normal implementation steps (2–6) and follow the **QA Gate Handling** section below instead.
 
 ### 1. Mark In-Progress
 
@@ -30,7 +35,13 @@ gh issue edit <ISSUE_NUMBER> --add-label "in-progress"
 
 ### 2. Branch
 
-Checkout a new branch from the previous issue's branch using the naming convention defined by the issue.
+Create a new Graphite-tracked branch from the previous issue's branch:
+
+```bash
+gt branch create <branch-name>
+```
+
+This automatically tracks the parent branch in Graphite's stack metadata, so later operations like `gt stack restack` and `gt stack submit` work correctly.
 
 ### 3. Red Phase — Tests First
 
@@ -61,7 +72,19 @@ Remove the `in-progress` label from the issue:
 gh issue edit <ISSUE_NUMBER> --remove-label "in-progress"
 ```
 
-Use /create-pr to create a **draft** PR based on the previous issue's branch. Label the PR as `pending review`.
+Submit the stack to create or update PRs for all branches in the stack:
+
+```bash
+gt stack submit --draft
+```
+
+This creates a draft PR for the current branch (and updates any existing PRs in the stack). Graphite automatically sets the correct base branch and adds a stack overview to the PR description.
+
+After submitting, add the `pending review` label:
+
+```bash
+gh pr edit <PR_NUMBER> --add-label "pending review"
+```
 
 **Link the PR to the issue.** Because stacked PRs merge into other feature branches (not `main`), GitHub's `Closes #N` keyword will NOT auto-close issues. Instead:
 
@@ -78,6 +101,48 @@ Do NOT close the issue when creating the draft PR — only after it is merged.
 ### 7. Next
 
 Move on to the next sub-issue.
+
+## QA Gate Handling
+
+When triage identifies a `[QA]` issue, delegate it entirely to a subagent to preserve the main agent's context. The subagent runs the full QA gate process.
+
+### Subagent Setup
+
+Launch a subagent with:
+- The full contents of the `/implement-qa-gate` skill instructions
+- The QA gate issue URL/number
+- The current branch name (so it knows where to create the gate branch)
+- The previous gate branch name (for red-phase verification)
+
+The subagent handles everything: branch creation, test plan design, building the harness, red/green phases, and PR submission.
+
+### After the Subagent Completes
+
+The main agent:
+1. Verifies the gate branch and PR were created
+2. Moves on to the next sub-issue
+
+If the subagent fails, retry it. Do NOT fall back to running the QA gate inline.
+
+## Restacking After Changes
+
+If a previous branch in the stack is updated (e.g., from review feedback), restack all downstream branches:
+
+```bash
+gt stack restack
+```
+
+This rebases all branches in the stack on top of their updated parents. Graphite handles the cascade automatically — no manual per-branch rebasing needed.
+
+## Merging
+
+When PRs are approved and ready to merge, use Graphite to merge the stack bottom-up:
+
+```bash
+gt stack submit  # ensure all PRs are up to date
+```
+
+As each PR merges, Graphite automatically retargets the next PR's base to the correct branch. You can also merge individual PRs and then run `gt stack restack` to update the rest of the chain.
 
 ## Compaction
 
