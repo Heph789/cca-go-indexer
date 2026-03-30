@@ -1,0 +1,1314 @@
+ ▐▛███▜▌   Claude Code v2.1.86
+▝▜█████▛▘  Opus 4.6 (1M context) · Claude Max
+  ▘▘ ▝▝    ~/Documents/dev/repos/cca-go-indexer
+
+❯ /clear                                                                        
+  ⎿  (no content)
+
+❯ /implement-issues https://github.com/Heph789/cca-go-indexer/issues/94         
+
+⏺ Bash(gh issue view 94 --repo Heph789/cca-go-indexer --json title,body,number)
+  ⎿  {
+       "body": "Enable frontend users to place bids on CCA auctions by inde
+     xing `BidSubmitted` and `CheckpointUpdated` events from watched contra
+     … +14 lines (ctrl+o to expand)
+
+⏺ Bash(gh issue list --repo Heph789/cca-go-indexer --json
+      number,title,state,labels --search "parent:94" 2>/dev/null || gh api
+      graphql -f query='query { repository(own…)
+  ⎿  [
+       {
+         "labels": [
+     … +60 lines (ctrl+o to expand)
+
+⏺ Let me get the sub-issues in order and check the current state.
+
+⏺ Bash(gh api graphql -f query='query { repository(owner:"Heph789",
+      name:"cca-go-indexer") { issue(number:94) { subIssues(first:50) { nodes {
+      number title state labels…)
+  ⎿  {
+       "data": {
+         "repository": {
+     … +83 lines (ctrl+o to expand)
+
+⏺ Bash(gt log short 2>/dev/null || echo "no graphite stack")
+  ⎿  Graphite has not been initialized, attempting to setup now...
+
+     Welcome to Graphite!
+     … +4 lines (ctrl+o to expand)
+
+⏺ I have 14 sub-issues to work through sequentially. Let me create tasks and
+  start with issue #95.
+⏺ Now let me start with issue #95. First, let me triage it — check for existing
+  PRs and get the full issue details.
+
+⏺ Bash(gh pr list --repo Heph789/cca-go-indexer --search "head:*95*" --json
+      number,title,state 2>/dev/null; echo "---"; gh issue view 95 --repo
+      Heph789/cca-go-indexer…)
+  ⎿  []
+     ---
+     {
+     … +30 lines (ctrl+o to expand)
+
+⏺ Issue #95 is open, no PRs, no question label. Let me mark it in-progress and
+  explore the codebase and scaffold.
+
+⏺ Bash(gh issue edit 95 --repo Heph789/cca-go-indexer --add-label "in-progress")
+  ⎿  https://github.com/Heph789/cca-go-indexer/issues/95
+
+⏺ Explore(Explore codebase structure)
+  ⎿  Done (28 tool uses · 60.1k tokens · 1m 11s)
+  (ctrl+o to expand)
+
+⏺ Bash(git branch -a | grep scaffold)
+  ⎿  + bid-auction-1-/scaffold-1
+       bid-auction-1-/scaffold-1-/prototype-1
+       remotes/origin/indexer-1-/scaffold-1
+       remotes/origin/indexer-api-happy-1-/scaffold-1
+
+⏺ Bash(git diff bid-auction-1..bid-auction-1-/scaffold-1 --stat)
+  ⎿   .claude/skills/implement-issues/SKILL.md           |   23 -
+      .claude/skills/implement-qa-gate/SKILL.md          |    2 +
+      .claude/skills/scaffold/SKILL.md                   |   14 +-
+     … +49 lines (ctrl+o to expand)
+
+⏺ Bash(git diff bid-auction-1..bid-auction-1-/scaffold-1 --
+      internal/domain/cca/watched_contract.go internal/store/store.go
+      internal/indexer/indexer.go internal/indexe…)
+  ⎿  diff --git a/internal/domain/cca/watched_contract.go b/internal/domain
+     /cca/watched_contract.go
+     new file mode 100644
+     … +426 lines (ctrl+o to expand)
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Now let me read the current source files to understand what needs to change.
+
+  Read 5 files (ctrl+o to expand)
+
+⏺ Good, I now understand the full picture. Let me create the branch and start
+  implementation.
+
+⏺ Bash(gt branch create bid-auction-1/indexer-watched-contracts-1)
+  ⎿  Error: Exit code 1
+     ERROR: Cannot perform this operation on untracked branch bid-auction-1.
+     You can track it by specifying its parent with gt track. 
+     WARNING: This command has been renamed and will be fully removed soon. 
+     Please use gt create instead.
+     You can now use gt aliases to configure your own command aliases.
+     Try gt aliases --legacy to automatically add all of the old shortcuts to 
+     your aliases configuration.
+
+⏺ Bash(gt track --parent main)
+  ⎿  Tracked branch bid-auction-1 with parent main (includes 2 commits).
+
+⏺ Bash(gt create bid-auction-1/indexer-watched-contracts-1 -m "feat(indexer):
+      watched contract polling and cursor advancement")
+  ⎿  Error: Exit code 1
+     No staged changes; creating a branch with no commit.
+     fatal: cannot lock ref 
+     'refs/heads/bid-auction-1/indexer-watched-contracts-1': 
+     'refs/heads/bid-auction-1' exists; cannot create 
+     'refs/heads/bid-auction-1/indexer-watched-contracts-1'
+     ERROR: Command failed with error exit code 128:
+     git switch -q -c bid-auction-1/indexer-watched-contracts-1
+
+     fatal: cannot lock ref 
+     'refs/heads/bid-auction-1/indexer-watched-contracts-1': 
+     'refs/heads/bid-auction-1' exists; cannot create 
+     'refs/heads/bid-auction-1/indexer-watched-contracts-1'
+
+⏺ Bash(gt create bid-auction-1--indexer-watched-contracts-1 -m "feat(indexer):
+      watched contract polling and cursor advancement")
+  ⎿  No staged changes; creating a branch with no commit.
+
+     tip: If you need to undo the operation you just ran, you can do so wit
+     h gt undo. [runner.undo ●○○]
+
+⏺ Good, branch created. Now let me implement the domain type and interface
+  changes first, then launch the go-tester for tests.
+
+  First, let me create the domain type and update the interfaces:
+
+⏺ Write(internal/domain/cca/watched_contract.go)  ⎿  Wrote 20 lines to internal/domain/cca/watched_contract.go
+       1 package cca
+       2 
+       3 import (
+       4        "time"
+       5 
+       6        "github.com/ethereum/go-ethereum/common"
+       7 )
+       8 
+       9 // WatchedContract represents a contract whose events the indexe
+         r tracks
+      10 // alongside the factory address. Each contract maintains its ow
+         n cursor
+     … +10 lines (ctrl+o to expand)
+
+⏺ Now update the Store interface to add WatchedContractRepo(),
+  WatchedContractRepository, and RollbackFromBlock:
+
+⏺ Write(internal/store/store.go)
+  ⎿  Added 22 lines
+      11  // Store provides access to all domain repositories and transac
+          tional writes.
+      12  type Store interface {
+      13    AuctionRepo() AuctionRepository
+      14 +  WatchedContractRepo() WatchedContractRepository              
+      15    RawEventRepo() RawEventRepository
+      16    CursorRepo() CursorRepository
+      17    BlockRepo() BlockRepository
+      18 +  // RollbackFromBlock deletes all indexed data (events, auctio
+         +ns, blocks,                                                    
+      19 +  // watched contract cursors) at or after fromBlock. Used duri
+         +ng reorg recovery.                                             
+      20 +  RollbackFromBlock(ctx context.Context, chainID int64, fromBlo
+         +ck uint64) error                                               
+      21    Ping(ctx context.Context) error
+      22    WithTx(ctx context.Context, fn func(txStore Store) error) err
+          or
+      23    Close()
+     ...
+      30    GetByAddress(ctx context.Context, chainID int64, auctionAddre
+          ss string) (*cca.Auction, error)
+      31  }
+      32  
+      33 +// WatchedContractRepository manages the set of contracts being
+         + indexed.                                                      
+      34 +type WatchedContractRepository interface {                     
+      35 +  // Insert adds a new watched contract record.                
+      36 +  Insert(ctx context.Context, contract *cca.WatchedContract) er
+         +ror                                                            
+      37 +  // ListCaughtUp returns addresses of contracts whose last_ind
+         +exed_block >= globalCursor,                                    
+      38 +  // meaning they are caught up to the global indexer position 
+         +and should be                                                  
+      39 +  // included in forward polling.                              
+      40 +  ListCaughtUp(ctx context.Context, chainID int64, globalCursor
+         + uint64) ([]common.Address, error)                             
+      41 +  // ListNeedingBackfill returns contracts whose last_indexed_b
+         +lock < globalCursor,                                           
+      42 +  // meaning they need to be backfilled before joining forward 
+         +polling.                                                       
+      43 +  ListNeedingBackfill(ctx context.Context, chainID int64, globa
+         +lCursor uint64) ([]*cca.WatchedContract, error)                
+      44 +  // UpdateLastIndexedBlock advances the per-contract cursor to
+         + lastIndexedBlock.                                             
+      45 +  UpdateLastIndexedBlock(ctx context.Context, chainID int64, ad
+         +dress string, lastIndexedBlock uint64) error                   
+      46 +  // RollbackCursors sets last_indexed_block = fromBlock - 1 fo
+         +r any contract                                                 
+      47 +  // whose cursor is >= fromBlock, used during reorg recovery. 
+      48 +  RollbackCursors(ctx context.Context, chainID int64, fromBlock
+         + uint64) error                                                 
+      49 +}                                                              
+      50 +                                                               
+      51  // RawEventRepository persists raw on-chain event data for audi
+          ting and replay.
+      52  type RawEventRepository interface {
+      53    Insert(ctx context.Context, event *cca.RawEvent) error
+
+⏺ Now update the indexer loop to include watched contract polling:
+
+⏺ Update(internal/indexer/indexer.go)
+  ⎿  Added 18 lines, removed 1 line
+      161  
+      162      idx.logger.Info("processing batch", "from", from, "to", to
+           )
+      163  
+      164 +    caughtUp, err := idx.store.WatchedContractRepo().ListCaugh
+          +tUp(ctx, idx.config.ChainID, cursor)                          
+      165 +    if err != nil {                                           
+      166 +      if shouldExit := idx.handleLoopError(&consecutiveErrors,
+          + "list caught-up contracts", err); shouldExit {               
+      167 +        return fmt.Errorf("listing caught-up contracts (after 
+          +%d retries): %w", maxLoopRetries, err)                        
+      168 +      }                                                       
+      169 +      select {                                                
+      170 +      case <-ctx.Done():                                      
+      171 +        return ctx.Err()                                      
+      172 +      case <-time.After(idx.config.PollInterval):             
+      173 +        continue                                              
+      174 +      }                                                       
+      175 +    }                                                         
+      176 +                                                              
+      177 +    allAddresses := make([]common.Address, 0, len(idx.config.A
+          +ddresses)+len(caughtUp))                                      
+      178 +    allAddresses = append(allAddresses, idx.config.Addresses..
+          +.)                                                            
+      179 +    allAddresses = append(allAddresses, caughtUp...)          
+      180 +                                                              
+      181      logs, err := idx.ethClient.FilterLogs(ctx, ethereum.Filter
+           Query{
+      182        FromBlock: new(big.Int).SetUint64(from),
+      183        ToBlock:   new(big.Int).SetUint64(to),
+      167 -      Addresses: idx.config.Addresses,                        
+      184 +      Addresses: allAddresses,                                
+      185        Topics:    idx.registry.TopicFilter(),
+      186      })
+      187      if err != nil {
+
+⏺ Now update the transaction block to advance per-contract cursors:
+
+⏺ Update(internal/indexer/indexer.go)
+  ⎿  Added 6 lines
+      250          return fmt.Errorf("upserting cursor: %w", err)
+      251        }
+      252  
+      253 +      for _, addr := range caughtUp {                         
+      254 +        if err := txStore.WatchedContractRepo().UpdateLastInde
+          +xedBlock(ctx, idx.config.ChainID, addr.Hex(), to); err != nil 
+          +{                                                             
+      255 +          return fmt.Errorf("updating watched contract cursor 
+          +for %s: %w", addr.Hex(), err)                                 
+      256 +        }                                                     
+      257 +      }                                                       
+      258 +                                                              
+      259        return nil
+      260      })
+      261      if err != nil {
+
+⏺ Now update reorg.go to use RollbackFromBlock:
+
+⏺ Update(internal/indexer/reorg.go)
+  ⎿  Added 2 lines, removed 8 lines
+      68    rollbackFrom := ancestor + 1
+      69  
+      70    err := s.WithTx(ctx, func(txStore store.Store) error {
+      71 -    if err := txStore.RawEventRepo().DeleteFromBlock(ctx, chain
+         -ID, rollbackFrom); err != nil {                                
+      72 -      return fmt.Errorf("delete raw events: %w", err)          
+      71 +    if err := txStore.RollbackFromBlock(ctx, chainID, rollbackF
+         +rom); err != nil {                                             
+      72 +      return err                                               
+      73      }
+      74 -    if err := txStore.AuctionRepo().DeleteFromBlock(ctx, chainI
+         -D, rollbackFrom); err != nil {                                 
+      75 -      return fmt.Errorf("delete auctions: %w", err)            
+      76 -    }                                                          
+      77 -    if err := txStore.BlockRepo().DeleteFrom(ctx, chainID, roll
+         -backFrom); err != nil {                                        
+      78 -      return fmt.Errorf("delete blocks: %w", err)              
+      79 -    }                                                          
+      74  
+      75      ancestorHash, err := txStore.BlockRepo().GetHash(ctx, chain
+          ID, ancestor)
+      76      if err != nil {
+
+⏺ Now update the mock_test.go to add watched contract repo and
+  RollbackFromBlock:
+
+⏺ Write(internal/indexer/mock_test.go)
+  ⎿  Added 89 lines, removed 19 lines
+       51  // --- mockStore ---
+       52  
+       53  type mockStore struct {
+       54 -  auctionRepo  *mockAuctionRepo                               
+       55 -  rawEventRepo *mockRawEventRepo                              
+       56 -  cursorRepo   *mockCursorRepo                                
+       57 -  blockRepo    *mockBlockRepo                                 
+       58 -  WithTxFn     func(ctx context.Context, fn func(txStore store
+          -.Store) error) error                                          
+       59 -  CloseFn      func()                                         
+       54 +  auctionRepo         *mockAuctionRepo                        
+       55 +  rawEventRepo        *mockRawEventRepo                       
+       56 +  cursorRepo          *mockCursorRepo                         
+       57 +  blockRepo           *mockBlockRepo                          
+       58 +  watchedContractRepo *mockWatchedContractRepo                
+       59 +  WithTxFn            func(ctx context.Context, fn func(txStor
+          +e store.Store) error) error                                   
+       60 +  RollbackFromBlockFn func(ctx context.Context, chainID int64,
+          + fromBlock uint64) error                                      
+       61 +  CloseFn             func()                                  
+       62  }
+       63  
+       64  func newMockStore() *mockStore {
+       65    return &mockStore{
+       64 -    auctionRepo:  &mockAuctionRepo{},                         
+       65 -    rawEventRepo: &mockRawEventRepo{},                        
+       66 -    cursorRepo:   &mockCursorRepo{},                          
+       67 -    blockRepo:    &mockBlockRepo{},                           
+       66 +    auctionRepo:         &mockAuctionRepo{},                  
+       67 +    rawEventRepo:        &mockRawEventRepo{},                 
+       68 +    cursorRepo:          &mockCursorRepo{},                   
+       69 +    blockRepo:           &mockBlockRepo{},                    
+       70 +    watchedContractRepo: &mockWatchedContractRepo{},          
+       71    }
+       72  }
+       73  
+       71 -func (m *mockStore) AuctionRepo() store.AuctionRepository   { 
+          -return m.auctionRepo }                                        
+       72 -func (m *mockStore) RawEventRepo() store.RawEventRepository { 
+          -return m.rawEventRepo }                                       
+       73 -func (m *mockStore) CursorRepo() store.CursorRepository     { 
+          -return m.cursorRepo }                                         
+       74 -func (m *mockStore) BlockRepo() store.BlockRepository       { 
+          -return m.blockRepo }                                          
+       74 +func (m *mockStore) AuctionRepo() store.AuctionRepository     
+          +        { return m.auctionRepo }                              
+       75 +func (m *mockStore) RawEventRepo() store.RawEventRepository   
+          +        { return m.rawEventRepo }                             
+       76 +func (m *mockStore) CursorRepo() store.CursorRepository       
+          +        { return m.cursorRepo }                               
+       77 +func (m *mockStore) BlockRepo() store.BlockRepository         
+          +        { return m.blockRepo }                                
+       78 +func (m *mockStore) WatchedContractRepo() store.WatchedContrac
+          +tRepository {                                                 
+       79 +  return m.watchedContractRepo                                
+       80 +}                                                             
+       81  
+       82  func (m *mockStore) WithTx(ctx context.Context, fn func(txStor
+           e store.Store) error) error {
+       83    if m.WithTxFn != nil {
+       84      return m.WithTxFn(ctx, fn)
+       85    }
+       80 -  // Default: call fn with a separate tx store so tests can di
+          -stinguish                                                     
+       86    txStore := &mockStore{
+       82 -    auctionRepo:  m.auctionRepo,                              
+       83 -    rawEventRepo: m.rawEventRepo,                             
+       84 -    cursorRepo:   m.cursorRepo,                               
+       85 -    blockRepo:    m.blockRepo,                                
+       87 +    auctionRepo:         m.auctionRepo,                       
+       88 +    rawEventRepo:        m.rawEventRepo,                      
+       89 +    cursorRepo:          m.cursorRepo,                        
+       90 +    blockRepo:           m.blockRepo,                         
+       91 +    watchedContractRepo: m.watchedContractRepo,               
+       92    }
+       93    return fn(txStore)
+       94  }
+       95  
+       96 +func (m *mockStore) RollbackFromBlock(ctx context.Context, cha
+          +inID int64, fromBlock uint64) error {                         
+       97 +  if m.RollbackFromBlockFn != nil {                           
+       98 +    return m.RollbackFromBlockFn(ctx, chainID, fromBlock)     
+       99 +  }                                                           
+      100 +  if err := m.rawEventRepo.DeleteFromBlock(ctx, chainID, fromB
+          +lock); err != nil {                                           
+      101 +    return err                                                
+      102 +  }                                                           
+      103 +  if err := m.auctionRepo.DeleteFromBlock(ctx, chainID, fromBl
+          +ock); err != nil {                                            
+      104 +    return err                                                
+      105 +  }                                                           
+      106 +  if err := m.watchedContractRepo.RollbackCursors(ctx, chainID
+          +, fromBlock); err != nil {                                    
+      107 +    return err                                                
+      108 +  }                                                           
+      109 +  if err := m.blockRepo.DeleteFrom(ctx, chainID, fromBlock); e
+          +rr != nil {                                                   
+      110 +    return err                                                
+      111 +  }                                                           
+      112 +  return nil                                                  
+      113 +}                                                             
+      114 +                                                              
+      115  func (m *mockStore) Ping(_ context.Context) error { return nil
+            }
+      116  
+      117  func (m *mockStore) Close() {
+     ...
+      220    return nil
+      221  }
+      222  
+      223 +// --- mockWatchedContractRepo ---                            
+      224 +                                                              
+      225 +type mockWatchedContractRepo struct {                         
+      226 +  InsertFn                 func(ctx context.Context, contract 
+          +*cca.WatchedContract) error                                   
+      227 +  ListCaughtUpFn           func(ctx context.Context, chainID i
+          +nt64, globalCursor uint64) ([]common.Address, error)          
+      228 +  ListNeedingBackfillFn    func(ctx context.Context, chainID i
+          +nt64, globalCursor uint64) ([]*cca.WatchedContract, error)    
+      229 +  UpdateLastIndexedBlockFn func(ctx context.Context, chainID i
+          +nt64, address string, lastIndexedBlock uint64) error          
+      230 +  RollbackCursorsFn        func(ctx context.Context, chainID i
+          +nt64, fromBlock uint64) error                                 
+      231 +}                                                             
+      232 +                                                              
+      233 +func (m *mockWatchedContractRepo) Insert(ctx context.Context, 
+          +contract *cca.WatchedContract) error {                        
+      234 +  if m.InsertFn != nil {                                      
+      235 +    return m.InsertFn(ctx, contract)                          
+      236 +  }                                                           
+      237 +  return nil                                                  
+      238 +}                                                             
+      239 +                                                              
+      240 +func (m *mockWatchedContractRepo) ListCaughtUp(ctx context.Con
+          +text, chainID int64, globalCursor uint64) ([]common.Address, e
+          +rror) {                                                       
+      241 +  if m.ListCaughtUpFn != nil {                                
+      242 +    return m.ListCaughtUpFn(ctx, chainID, globalCursor)       
+      243 +  }                                                           
+      244 +  return nil, nil                                             
+      245 +}                                                             
+      246 +                                                              
+      247 +func (m *mockWatchedContractRepo) ListNeedingBackfill(ctx cont
+          +ext.Context, chainID int64, globalCursor uint64) ([]*cca.Watch
+          +edContract, error) {                                          
+      248 +  if m.ListNeedingBackfillFn != nil {                         
+      249 +    return m.ListNeedingBackfillFn(ctx, chainID, globalCursor)
+      250 +  }                                                           
+      251 +  return nil, nil                                             
+      252 +}                                                             
+      253 +                                                              
+      254 +func (m *mockWatchedContractRepo) UpdateLastIndexedBlock(ctx c
+          +ontext.Context, chainID int64, address string, lastIndexedBloc
+          +k uint64) error {                                             
+      255 +  if m.UpdateLastIndexedBlockFn != nil {                      
+      256 +    return m.UpdateLastIndexedBlockFn(ctx, chainID, address, l
+          +astIndexedBlock)                                              
+      257 +  }                                                           
+      258 +  return nil                                                  
+      259 +}                                                             
+      260 +                                                              
+      261 +func (m *mockWatchedContractRepo) RollbackCursors(ctx context.
+          +Context, chainID int64, fromBlock uint64) error {             
+      262 +  if m.RollbackCursorsFn != nil {                             
+      263 +    return m.RollbackCursorsFn(ctx, chainID, fromBlock)       
+      264 +  }                                                           
+      265 +  return nil                                                  
+      266 +}                                                             
+      267 +                                                              
+      268  // --- mockHandler ---
+      269  
+      270  type mockHandler struct {
+
+⏺ Now I need to check if the postgres store also needs to implement the new
+  interface. Let me check what needs updating there.
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Found 1 new diagnostic issue in 1 file (ctrl+o to expand)
+
+⏺ I need to add WatchedContractRepo() and RollbackFromBlock() to the postgres
+  store. Since issue #96 will implement the actual Postgres watched contract
+  repo, I'll add a stub for now.
+
+⏺ Update(internal/store/postgres/postgres.go)
+  ⎿  Added 24 lines
+      132  func (s *pgStore) BlockRepo() store.BlockRepository {
+      133    return &blockRepo{q: s.q()}
+      134  }
+      135 +                                                              
+      136 +func (s *pgStore) WatchedContractRepo() store.WatchedContractR
+          +epository {                                                   
+      137 +  return &watchedContractRepo{q: s.q()}                       
+      138 +}                                                             
+      139 +                                                              
+      140 +// RollbackFromBlock deletes all indexed data at or after from
+          +Block across all                                              
+      141 +// domain repositories and resets watched contract cursors. Us
+          +ed during reorg recovery.                                     
+      142 +func (s *pgStore) RollbackFromBlock(ctx context.Context, chain
+          +ID int64, fromBlock uint64) error {                           
+      143 +  q := s.q()                                                  
+      144 +                                                              
+      145 +  if _, err := q.Exec(ctx, "DELETE FROM raw_events WHERE chain
+          +_id = $1 AND block_number >= $2", chainID, fromBlock); err != 
+          +nil {                                                         
+      146 +    return fmt.Errorf("delete raw events: %w", err)           
+      147 +  }                                                           
+      148 +  if _, err := q.Exec(ctx, "DELETE FROM event_ccaf_auction_cre
+          +ated WHERE chain_id = $1 AND block_number >= $2", chainID, fro
+          +mBlock); err != nil {                                         
+      149 +    return fmt.Errorf("delete auctions: %w", err)             
+      150 +  }                                                           
+      151 +  if _, err := q.Exec(ctx, "UPDATE watched_contracts SET last_
+          +indexed_block = $1 - 1 WHERE chain_id = $2 AND last_indexed_bl
+          +ock >= $1", fromBlock, chainID); err != nil {                 
+      152 +    return fmt.Errorf("rollback watched contract cursors: %w",
+          + err)                                                         
+      153 +  }                                                           
+      154 +  if _, err := q.Exec(ctx, "DELETE FROM indexed_blocks WHERE c
+          +hain_id = $1 AND block_number >= $2", chainID, fromBlock); err
+          + != nil {                                                     
+      155 +    return fmt.Errorf("delete blocks: %w", err)               
+      156 +  }                                                           
+      157 +  return nil                                                  
+      158 +}                                                             
+
+⏺ Now I need a stub watchedContractRepo for the postgres package. Let me create
+  it:
+
+⏺ Write(internal/store/postgres/watched_contract.go)
+  ⎿  Wrote 104 lines to internal/store/postgres/watched_contract.go
+       1 package postgres
+       2 
+       3 import (
+       4        "context"
+       5        "fmt"
+       6 
+       7        "github.com/ethereum/go-ethereum/common"
+       8 
+       9        "github.com/cca/go-indexer/internal/domain/cca"
+      10 )
+     … +94 lines (ctrl+o to expand)
+  ⎿  Found 1 new diagnostic issue in 1 file (ctrl+o to expand)
+
+⏺ Good, that resolved the compile error. Now let me also check if the postgres
+  repos_test.go needs any update to satisfy the Store interface:
+
+⏺ Bash(go build ./... 2>&1 | head -30)
+  ⎿  (No output)
+
+⏺ Code compiles. Now let me commit the interface and domain changes, then move
+  to writing tests.
+
+⏺ Bash(git add internal/domain/cca/watched_contract.go internal/store/store.go
+      internal/store/postgres/postgres.go
+      internal/store/postgres/watched_contract.go internal…)
+  ⎿  [bid-auction-1--indexer-watched-contracts-1 35934a0] feat(indexer): ad
+     d watched contract types, interfaces, and loop integration
+      7 files changed, 285 insertions(+), 28 deletions(-)
+     … +2 lines (ctrl+o to expand)
+
+⏺ Now let me launch the go-tester agent for the red phase — writing tests for
+  the watched contract indexer behavior.
+
+⏺ go-tester(Write tests for issue #95)
+  ⎿  Done (31 tool uses · 57.1k tokens · 4m 22s)
+  (ctrl+o to expand)
+
+❯ On the github issues you may see a branch name like "<BASE>/<FEATURE>", but  
+really it should be "<BASE>-/<FEATURE>" to avoid the git conflict              
+
+⏺ Got it — branch names in issues use <BASE>/<FEATURE> but the actual branch
+  should be <BASE>-/<FEATURE> to avoid git ref conflicts. I already hit that
+  issue and used bid-auction-1--indexer-watched-contracts-1. Let me rename it to
+   match the convention bid-auction-1-/indexer-watched-contracts-1.
+
+⏺ Bash(git branch -m bid-auction-1--indexer-watched-contracts-1
+      bid-auction-1-/indexer-watched-contracts-1)  ⎿  (No output)
+
+⏺ Now let me check what tests the go-tester wrote and verify them.
+
+⏺ Bash(go test ./internal/indexer/ -run
+      "TestIndexer_Merges|TestIndexer_Updates|TestIndexer_CursorUpdatesInsideTx|
+      TestIndexer_NoWatched|TestIndexer_ReorgRollsBack" -v…)
+  ⎿  === RUN   TestIndexer_MergesWatchedContractAddresses
+     --- PASS: TestIndexer_MergesWatchedContractAddresses (0.00s)
+     === RUN   TestIndexer_UpdatesWatchedContractCursorsAfterBatch
+     … +9 lines (ctrl+o to expand)
+
+⏺ Tests pass. But per TDD, they should fail first (red phase). Since I already
+  wrote the implementation, the tests correctly pass against the implementation.
+   Let me verify the full test suite still passes:
+
+⏺ Bash(go test ./internal/indexer/ -v 2>&1 | tail -50)
+  ⎿  === RUN   TestIndexer_NoWatchedContractsOnlyConfigAddresses
+     --- PASS: TestIndexer_NoWatchedContractsOnlyConfigAddresses (0.00s)
+     === RUN   TestIndexer_ReorgRollsBackWatchedContractCursors
+     … +37 lines (ctrl+o to expand)
+
+⏺ All 30 tests pass. Let me also run the full test suite to make sure nothing
+  else broke:
+
+⏺ Bash(go test ./... 2>&1)
+  ⎿  Error: Exit code 1
+     # github.com/cca/go-indexer/cmd/api 
+     [github.com/cca/go-indexer/cmd/api.test]
+     cmd/api/main_test.go:26:12: cannot use m (variable of type *mockStore) as 
+     store.Store value in argument to fn: *mockStore does not implement 
+     store.Store (missing method RollbackFromBlock)
+     cmd/api/main_test.go:87:13: cannot use &mockStore{} (value of type 
+     *mockStore) as store.Store value in struct literal: *mockStore does not 
+     implement store.Store (missing method RollbackFromBlock)
+     cmd/api/main_test.go:101:13: cannot use &mockStore{} (value of type 
+     *mockStore) as store.Store value in struct literal: *mockStore does not 
+     implement store.Store (missing method RollbackFromBlock)
+     cmd/api/main_test.go:120:13: cannot use &mockStore{} (value of type 
+     *mockStore) as store.Store value in struct literal: *mockStore does not 
+     implement store.Store (missing method RollbackFromBlock)
+     cmd/api/main_test.go:170:36: cannot use st (variable of type *mockStore) as
+      store.Store value in argument to run: *mockStore does not implement 
+     store.Store (missing method RollbackFromBlock)
+     # github.com/cca/go-indexer/internal/api/handlers 
+     [github.com/cca/go-indexer/internal/api/handlers.test]
+     internal/api/handlers/auction_test.go:50:12: cannot use m (variable of type
+      *mockStore) as store.Store value in argument to fn: *mockStore does not 
+     implement store.Store (missing method RollbackFromBlock)
+     internal/api/handlers/auction_test.go:103:19: cannot use ms (variable of 
+     type *mockStore) as store.Store value in argument to setupMux: *mockStore 
+     does not implement store.Store (missing method RollbackFromBlock)
+     … +36 lines (ctrl+o to see all)
+
+⏺ Other mock stores need RollbackFromBlock and WatchedContractRepo. Let me fix
+  these.
+
+  Searched for 2 patterns, read 2 files (ctrl+o to expand)
+
+⏺ I need to add WatchedContractRepo() and RollbackFromBlock() stubs to all three
+   mock stores. Let me fix them:
+
+⏺ Update(cmd/api/main_test.go)
+  ⎿  Added 8 lines, removed 4 lines
+      18    CloseFn func()
+      19  }
+      20  
+      21 -func (m *mockStore) AuctionRepo() store.AuctionRepository   { r
+         -eturn nil }                                                    
+      22 -func (m *mockStore) RawEventRepo() store.RawEventRepository { r
+         -eturn nil }                                                    
+      23 -func (m *mockStore) CursorRepo() store.CursorRepository     { r
+         -eturn nil }                                                    
+      24 -func (m *mockStore) BlockRepo() store.BlockRepository       { r
+         -eturn nil }                                                    
+      21 +func (m *mockStore) AuctionRepo() store.AuctionRepository      
+         +       { return nil }                                          
+      22 +func (m *mockStore) RawEventRepo() store.RawEventRepository    
+         +       { return nil }                                          
+      23 +func (m *mockStore) CursorRepo() store.CursorRepository        
+         +       { return nil }                                          
+      24 +func (m *mockStore) BlockRepo() store.BlockRepository          
+         +       { return nil }                                          
+      25 +func (m *mockStore) WatchedContractRepo() store.WatchedContract
+         +Repository { return nil }                                      
+      26 +func (m *mockStore) RollbackFromBlock(_ context.Context, _ int6
+         +4, _ uint64) error {                                           
+      27 +  return nil                                                   
+      28 +}                                                              
+      29  func (m *mockStore) WithTx(ctx context.Context, fn func(txStore
+           store.Store) error) error {
+      30    return fn(m)
+      31  }
+
+⏺ Update(internal/indexer/handlers/mock_test.go)
+  ⎿  Added 8 lines, removed 4 lines
+      25    }
+      26  }
+      27  
+      28 -func (m *mockStore) AuctionRepo() store.AuctionRepository   { r
+         -eturn m.auctionRepo }                                          
+      29 -func (m *mockStore) RawEventRepo() store.RawEventRepository { r
+         -eturn m.rawEventRepo }                                         
+      30 -func (m *mockStore) CursorRepo() store.CursorRepository     { r
+         -eturn m.cursorRepo }                                           
+      31 -func (m *mockStore) BlockRepo() store.BlockRepository       { r
+         -eturn m.blockRepo }                                            
+      28 +func (m *mockStore) AuctionRepo() store.AuctionRepository      
+         +       { return m.auctionRepo }                                
+      29 +func (m *mockStore) RawEventRepo() store.RawEventRepository    
+         +       { return m.rawEventRepo }                               
+      30 +func (m *mockStore) CursorRepo() store.CursorRepository        
+         +       { return m.cursorRepo }                                 
+      31 +func (m *mockStore) BlockRepo() store.BlockRepository          
+         +       { return m.blockRepo }                                  
+      32 +func (m *mockStore) WatchedContractRepo() store.WatchedContract
+         +Repository { return nil }                                      
+      33 +func (m *mockStore) RollbackFromBlock(_ context.Context, _ int6
+         +4, _ uint64) error {                                           
+      34 +  return nil                                                   
+      35 +}                                                              
+      36  func (m *mockStore) WithTx(ctx context.Context, fn func(txStore
+           store.Store) error) error {
+      37    return fn(m)
+      38  }
+
+⏺ Update(internal/api/handlers/auction_test.go)
+  ⎿  File must be read first
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Update(internal/api/handlers/auction_test.go)
+  ⎿  Added 8 lines, removed 4 lines
+      42    PingFn      func(ctx context.Context) error
+      43  }
+      44  
+      45 -func (m *mockStore) AuctionRepo() store.AuctionRepository   { r
+         -eturn m.auctionRepo }                                          
+      46 -func (m *mockStore) RawEventRepo() store.RawEventRepository { r
+         -eturn nil }                                                    
+      47 -func (m *mockStore) CursorRepo() store.CursorRepository     { r
+         -eturn nil }                                                    
+      48 -func (m *mockStore) BlockRepo() store.BlockRepository       { r
+         -eturn nil }                                                    
+      45 +func (m *mockStore) AuctionRepo() store.AuctionRepository      
+         +       { return m.auctionRepo }                                
+      46 +func (m *mockStore) RawEventRepo() store.RawEventRepository    
+         +       { return nil }                                          
+      47 +func (m *mockStore) CursorRepo() store.CursorRepository        
+         +       { return nil }                                          
+      48 +func (m *mockStore) BlockRepo() store.BlockRepository          
+         +       { return nil }                                          
+      49 +func (m *mockStore) WatchedContractRepo() store.WatchedContract
+         +Repository { return nil }                                      
+      50 +func (m *mockStore) RollbackFromBlock(_ context.Context, _ int6
+         +4, _ uint64) error {                                           
+      51 +  return nil                                                   
+      52 +}                                                              
+      53  func (m *mockStore) WithTx(ctx context.Context, fn func(txStore
+           store.Store) error) error {
+      54    return fn(m)
+      55  }
+
+⏺ Now check if there's also a postgres repos_test.go mock:
+
+⏺ Bash(go test ./... 2>&1 | head -20)
+  ⎿  ok         github.com/cca/go-indexer/cmd/api       0.835s
+     ?          github.com/cca/go-indexer/cmd/indexer   [no test files]
+     ok         github.com/cca/go-indexer/internal/api  (cached)
+     … +11 lines (ctrl+o to expand)
+
+⏺ All tests pass. Let me commit these fixes and then run the simplifier.
+
+⏺ Bash(git add cmd/api/main_test.go internal/indexer/handlers/mock_test.go
+      internal/api/handlers/auction_test.go internal/indexer/indexer_test.go &&
+      git commit -m "$(c…)
+  ⎿  [bid-auction-1-/indexer-watched-contracts-1 c365baa] fix: update mock
+     stores to satisfy new Store interface
+      3 files changed, 24 insertions(+), 12 deletions(-)
+
+⏺ Wait - I notice the tests weren't included in that commit (they were cached).
+  Let me check:
+
+⏺ Bash(git diff HEAD~2..HEAD --stat)
+  ⎿   cmd/api/main_test.go                   |  12 +-
+      internal/api/handlers/auction_test.go  |  12 +-
+      internal/indexer/handlers/mock_test.go |  12 +-
+     … +3 lines (ctrl+o to expand)
+
+⏺ Good — indexer_test.go was included in the first commit (the go-tester agent
+  added it). Now let me run the simplifier.
+
+⏺ code-simplifier(Simplify issue #95 code)
+  ⎿  Initializing…
+  ⎿  Error: Agent type 'code-simplifier' not found. Available agents: 
+     general-purpose, statusline-setup, Explore, Plan, claude-code-guide, 
+     code-simplifier:code-simplifier, react-testing-expert, go-tester
+
+⏺ code-simplifier:code-simplifier(Simplify issue #95 code)
+  ⎿  Done (20 tool uses · 49.3k tokens · 1m 17s)
+  (ctrl+o to expand)
+
+⏺ Good — the simplifier made two fixes: removed a duplicated chainHead < 
+  Confirmations guard and added a missing watchedContractRepo to a test mock
+  txStore. Let me verify and commit.
+
+⏺ Bash(go test ./internal/indexer/ -count=1 2>&1 | tail -5)
+  ⎿  ok         github.com/cca/go-indexer/internal/indexer      0.768s
+⏺ Bash(go test ./... 2>&1 | tail -15)
+  ⎿  ok         github.com/cca/go-indexer/cmd/api       (cached)
+     ?          github.com/cca/go-indexer/cmd/indexer   [no test files]
+     ok         github.com/cca/go-indexer/internal/api  (cached)
+     … +11 lines (ctrl+o to expand)
+
+⏺ All green. Let me commit the simplification changes.
+
+⏺ Bash(git add internal/indexer/indexer.go internal/indexer/indexer_test.go &&
+      git commit -m "$(cat <<'EOF'
+      refactor: remove duplicated confirmations guard, fix mock t…)
+  ⎿  [bid-auction-1-/indexer-watched-contracts-1 6c9b695] refactor: remove
+     duplicated confirmations guard, fix mock txStore
+      2 files changed, 5 insertions(+), 13 deletions(-)
+
+⏺ Now let me submit the PR and move on to issue #96.
+
+⏺ Bash(gh issue edit 95 --repo Heph789/cca-go-indexer --remove-label
+      "in-progress")
+  ⎿  https://github.com/Heph789/cca-go-indexer/issues/95
+
+⏺ Bash(gt stack submit --draft 2>&1)
+  ⎿  Error: Exit code 1
+     ERROR: Cannot perform this operation on untracked branch 
+     bid-auction-1-/indexer-watched-contracts-1.
+     You can track it by specifying its parent with gt track. 
+     WARNING: This command has been renamed and will be fully removed soon. 
+     Please use gt submit --stack instead.
+     You can now use gt aliases to configure your own command aliases.
+     Try gt aliases --legacy to automatically add all of the old shortcuts to 
+     your aliases configuration.
+
+⏺ Bash(gt track --parent bid-auction-1)
+  ⎿  Tracked branch bid-auction-1-/indexer-watched-contracts-1 with parent
+     bid-auction-1 (includes 4 commits).
+
+⏺ Bash(gt submit --stack --draft 2>&1)
+  ⎿  Running in non-interactive mode. Inline prompts to fill PR fields will
+      be skipped.
+     … +19 lines (ctrl+o to expand)
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+⏺ No PR template in the project root. Let me update the PR body for #110 with a
+  proper description.
+
+⏺ Bash(gh pr list --repo Heph789/cca-go-indexer --head
+      "bid-auction-1-/indexer-watched-contracts-1" --json number,url 2>&1)
+  ⎿  [
+       {
+         "number": 110,
+     … +3 lines (ctrl+o to expand)
+
+⏺ Bash(gh pr edit 110 --repo Heph789/cca-go-indexer --body "$(cat <<'EOF'
+      ## Summary…)
+  ⎿  https://github.com/Heph789/cca-go-indexer/pull/110
+
+⏺ Bash(gh pr edit 110 --repo Heph789/cca-go-indexer --add-label "pending
+      review")
+  ⎿  https://github.com/Heph789/cca-go-indexer/pull/110
+
+⏺ Issue #95 done — PR #110: https://github.com/Heph789/cca-go-indexer/pull/110
+
+  Now moving to issue #96: Watched contract Postgres repo and migration. Let me
+  triage it.
+
+⏺ Bash(gh issue view 96 --repo Heph789/cca-go-indexer --json
+      title,body,labels,state)
+  ⎿  {
+       "body": "**Phase: 1A — Watched Contract Framework**\n\n## Descriptio
+     n / Requirements\nAdd migration to alter `watched_contracts` with per-
+     … +32 lines (ctrl+o to expand)
+
+⏺ Bash(gh issue edit 96 --repo Heph789/cca-go-indexer --add-label "in-progress")
+  ⎿  https://github.com/Heph789/cca-go-indexer/issues/96
+
+⏺ Bash(git diff bid-auction-1..bid-auction-1-/scaffold-1 --
+      internal/store/migrations/)
+  ⎿  diff --git a/internal/store/migrations/20260329000000_bid_checkpoint.d
+     own.sql b/internal/store/migrations/20260329000000_bid_checkpoint.down
+     .sql
+     … +51 lines (ctrl+o to expand)
+
+  Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+⏺ Good — the watched_contracts table exists but lacks start_block,
+  start_block_time, and last_indexed_block. Let me also check how the embed.go
+  for migrations works:
+
+  Searched for 2 patterns (ctrl+o to expand)
+
+⏺ Now I have the full picture. For issue #96 I need:
+  1. Migration to add start_block, start_block_time, last_indexed_block to
+  watched_contracts + block_time to infrastructure tables
+  2. The watched_contract.go Postgres repo is already implemented from #95 — but
+   I need to update it to use lowerHex() and ON CONFLICT DO NOTHING
+  3. Tests
+
+  Let me create the branch and start.
+
+⏺ Bash(gt create bid-auction-1-/watched-contract-repo-1 -m "feat(store): watched
+       contract repo and migration")  ⎿  No staged changes; creating a branch with no commit.
+
+     tip: If you need to undo the operation you just ran, you can do so wit
+     h gt undo. [runner.undo ●●●]
+
+⏺ Now create the migration files. I'll only include the ALTER TABLE statements
+  for issue #96 (not the bid/checkpoint CREATE TABLE which is issue #100).
+
+⏺ Write(internal/store/migrations/000002_watched_contract_cursors.up.sql)
+  ⎿  Wrote 11 lines to
+     internal/store/migrations/000002_watched_contract_cursors.up.sql
+       1 -- Add per-contract cursor columns to watched_contracts for back
+         fill tracking.
+       2 ALTER TABLE watched_contracts ADD COLUMN start_block BIGINT NOT 
+         NULL DEFAULT 0;
+       3 ALTER TABLE watched_contracts ADD COLUMN start_block_time TIMEST
+         AMPTZ NOT NULL DEFAULT TIMESTAMPTZ 'epoch';
+       4 ALTER TABLE watched_contracts ADD COLUMN last_indexed_block BIGI
+         NT NOT NULL DEFAULT 0;
+       5 
+       6 -- Add block_time to infrastructure tables so downstream consume
+         rs
+       7 -- (event handlers, GraphQL resolvers) can surface wall-clock ti
+         mes.
+       8 ALTER TABLE indexer_cursors ADD COLUMN last_block_time TIMESTAMP
+         TZ NOT NULL DEFAULT TIMESTAMPTZ 'epoch';
+       9 ALTER TABLE raw_events ADD COLUMN block_time TIMESTAMPTZ NOT NUL
+         L DEFAULT TIMESTAMPTZ 'epoch';
+      10 ALTER TABLE indexed_blocks ADD COLUMN block_time TIMESTAMPTZ NOT
+          NULL DEFAULT TIMESTAMPTZ 'epoch';
+     … +1 line (ctrl+o to expand)
+
+⏺ Write(internal/store/migrations/000002_watched_contract_cursors.down.sql)
+  ⎿  Wrote 7 lines to
+     internal/store/migrations/000002_watched_contract_cursors.down.sql
+      1 ALTER TABLE event_ccaf_auction_created DROP COLUMN IF EXISTS bloc
+        k_time;
+      2 ALTER TABLE indexed_blocks DROP COLUMN IF EXISTS block_time;
+      3 ALTER TABLE raw_events DROP COLUMN IF EXISTS block_time;
+      4 ALTER TABLE indexer_cursors DROP COLUMN IF EXISTS last_block_time
+        ;
+      5 ALTER TABLE watched_contracts DROP COLUMN IF EXISTS last_indexed_
+        block;
+      6 ALTER TABLE watched_contracts DROP COLUMN IF EXISTS start_block_t
+        ime;
+      7 ALTER TABLE watched_contracts DROP COLUMN IF EXISTS start_block;
+
+⏺ Now update the watched_contract.go to use lowercase hex and ON CONFLICT DO
+  NOTHING for Insert:
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ Let me check how other repos handle address formatting:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+⏺ I need to use lowerHex instead of .Hex() and add ON CONFLICT DO NOTHING to
+  Insert. Also need to include start_block_time in the Insert.
+
+⏺ Write(internal/store/postgres/watched_contract.go)
+  ⎿  Added 11 lines, removed 4 lines
+      14    q querier
+      15  }
+      16  
+      17 -// Insert adds a new watched contract record.                  
+      17 +// Insert adds a new watched contract record. Duplicate (chain_
+         +id, address)                                                   
+      18 +// pairs are silently ignored for idempotent writes.           
+      19  func (r *watchedContractRepo) Insert(ctx context.Context, contr
+          act *cca.WatchedContract) error {
+      20    _, err := r.q.Exec(ctx,
+      20 -    `INSERT INTO watched_contracts (chain_id, address, label, s
+         -tart_block, last_indexed_block)                                
+      21 -     VALUES ($1, $2, $3, $4, $5)`,                             
+      22 -    contract.ChainID, contract.Address.Hex(), contract.Label, c
+         -ontract.StartBlock, contract.LastIndexedBlock,                 
+      21 +    `INSERT INTO watched_contracts (chain_id, address, label, s
+         +tart_block, start_block_time, last_indexed_block)              
+      22 +     VALUES ($1, $2, $3, $4, $5, $6)                           
+      23 +     ON CONFLICT DO NOTHING`,                                  
+      24 +    contract.ChainID,                                          
+      25 +    lowerHex(contract.Address),                                
+      26 +    contract.Label,                                            
+      27 +    contract.StartBlock,                                       
+      28 +    contract.StartBlockTime,                                   
+      29 +    contract.LastIndexedBlock,                                 
+      30    )
+      31    if err != nil {
+      32      return fmt.Errorf("insert watched contract: %w", err)
+
+⏺ I also need to add StartBlockTime to the domain type. Let me check:
+
+  Read 1 file (ctrl+o to expand)
+  ⎿  Found 1 new diagnostic issue in 1 file (ctrl+o to expand)
+
+⏺ Need to add StartBlockTime:
+
+⏺ Update(internal/domain/cca/watched_contract.go)
+  ⎿  Added 3 lines, removed 2 lines
+      13    ChainID          int64
+      14    Address          common.Address
+      15    Label            string
+      16 -  StartBlock       uint64 // block to begin indexing from      
+      17 -  LastIndexedBlock uint64 // per-contract cursor (0 = not yet i
+         -ndexed)                                                        
+      16 +  StartBlock       uint64    // block to begin indexing from   
+      17 +  StartBlockTime   time.Time // wall-clock time of the start bl
+         +ock                                                            
+      18 +  LastIndexedBlock uint64    // per-contract cursor (0 = not ye
+         +t indexed)                                                     
+      19    CreatedAt        time.Time
+      20    UpdatedAt        time.Time
+      21  }
+
+⏺ Bash(go build ./...)
+  ⎿  (No output)
+
+⏺ Good. Now let me check the existing postgres test patterns for integration
+  tests:
+
+  Searched for 2 patterns, read 2 files (ctrl+o to expand)
+
+⏺ I see the pattern — these are integration tests that require
+  TEST_DATABASE_URL. I also need to update the truncateAll to include
+  watched_contracts. Let me commit the migration and repo changes first, then
+  write tests.
+
+⏺ Update(internal/store/postgres/repos_test.go)
+  ⎿  Added 1 line, removed 1 line
+      15    t.Helper()
+      16    ps := s.(*pgStore)
+      17    ctx := context.Background()
+      18 -  _, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexe
+         -d_blocks, raw_events, event_ccaf_auction_created")             
+      18 +  _, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexe
+         +d_blocks, raw_events, event_ccaf_auction_created, watched_contr
+         +acts")                                                         
+      19    if err != nil {
+      20      t.Fatalf("truncate: %v", err)
+      21    }
+
+⏺ Bash(go build ./...)
+  ⎿  (No output)
+
+⏺ Now let me commit the migration and repo improvements, then write the tests
+  via go-tester:
+
+⏺ Bash(git add internal/store/migrations/000002_watched_contract_cursors.up.sql
+      internal/store/migrations/000002_watched_contract_cursors.down.sql
+      internal/store/postg…)
+  ⎿  [bid-auction-1-/watched-contract-repo-1 61f92ae] feat(store): watched
+     contract migration and repo improvements
+      5 files changed, 33 insertions(+), 7 deletions(-)
+     … +4 lines (ctrl+o to expand)
+
+⏺ Now let me write tests. These are integration tests that need a real Postgres
+  database. Let me use the go-tester agent.
+
+⏺ go-tester(Write watched contract repo tests)
+  ⎿  Done (11 tool uses · 28.0k tokens · 1m 41s)
+  (ctrl+o to expand)
+
+⏺ Good. Let me verify the tests compile:
+
+⏺ Bash(go build ./internal/store/postgres/ && go test ./internal/store/postgres/
+       -run "TestWatchedContract|TestRollbackFromBlock" -v 2>&1 | head -20)
+  ⎿  === RUN   TestWatchedContract_Insert_StoresContract
+         repos_test.go:540: TEST_DATABASE_URL not set
+     --- SKIP: TestWatchedContract_Insert_StoresContract (0.00s)
+     … +15 lines (ctrl+o to expand)
+
+⏺ Tests compile and skip properly. Let me commit the tests:
+
+⏺ Bash(git add internal/store/postgres/repos_test.go && git commit -m "$(cat
+      <<'EOF'
+      test(store): add watched contract repo integration tests…)
+  ⎿  [bid-auction-1-/watched-contract-repo-1 8263147] test(store): add watc
+     hed contract repo integration tests
+      1 file changed, 368 insertions(+)
+⏺ Let me run the simplifier, then submit the PR.
+
+⏺ code-simplifier:code-simplifier(Simplify issue #96 code)
+  ⎿  Done (38 tool uses · 45.1k tokens · 2m 28s)
+  (ctrl+o to expand)
+  ⎿  Found 2 new diagnostic issues in 1 file (ctrl+o to expand)
+
+⏺ Good fixes from the simplifier. Let me verify everything compiles and tests
+  pass.
+
+⏺ Bash(go build ./... && go test ./... 2>&1 | tail -15)
+  ⎿  ok         github.com/cca/go-indexer/cmd/api       0.853s
+     ?          github.com/cca/go-indexer/cmd/indexer   [no test files]
+     ok         github.com/cca/go-indexer/internal/api  (cached)
+     … +11 lines (ctrl+o to expand)
+
+⏺ All green. Let me commit the simplification changes.
+
+⏺ Bash(git add internal/store/store.go
+      internal/store/postgres/watched_contract.go
+      internal/store/postgres/postgres.go internal/indexer/indexer.go
+      internal/indexer/moc…)
+  ⎿  [bid-auction-1-/watched-contract-repo-1 2bca64a] refactor(store): simp
+     lify watched contract repo
+      7 files changed, 17 insertions(+), 17 deletions(-)
+
+⏺ Now submit the PR for issue #96.
+
+⏺ Bash(gh issue edit 96 --repo Heph789/cca-go-indexer --remove-label
+      "in-progress")
+  ⎿  https://github.com/Heph789/cca-go-indexer/issues/96
+
+⏺ Bash(gt submit --stack --draft 2>&1)
+  ⎿  Running in non-interactive mode. Inline prompts to fill PR fields will
+      be skipped.
+     … +14 lines (ctrl+o to expand)
+
+⏺ Bash(gh pr edit 111 --repo Heph789/cca-go-indexer --body "$(cat <<'EOF'
+      ## Summary…)
+  ⎿  https://github.com/Heph789/cca-go-indexer/pull/111
+     https://github.com/Heph789/cca-go-indexer/pull/111
+
+⏺ Issue #96 done — PR #111: https://github.com/Heph789/cca-go-indexer/pull/111
+
+  Now issue #97: [QA] Watched contract framework verification. This is a QA gate
+   issue — title starts with [QA] (well, "Automated QA"). Let me check.
+
+⏺ Bash(gh issue view 97 --repo Heph789/cca-go-indexer --json
+      title,body,state,labels)
+  ⎿  {
+       "body": "**Phase: 1A — Watched Contract Framework**\n\n## Descriptio
+     n / Requirements\nThis gate verifies the watched contract framework wo
+     … +17 lines (ctrl+o to expand)
+
+⏺ This is a QA gate issue. Per the process, I need to delegate to a subagent
+  with the /implement-qa-gate skill. Let me read that skill first.
+
+⏺ Bash(gh issue edit 97 --repo Heph789/cca-go-indexer --add-label "in-progress")
+  ⎿  https://github.com/Heph789/cca-go-indexer/issues/97
+
+  Read 1 file (ctrl+o to expand)
+
+⏺ This is a QA gate issue. I'll delegate it to a subagent per the process.
+
+⏺ Agent(Implement QA gate for issue #97)
+  ⎿  Done (74 tool uses · 109.6k tokens · 13m 34s)
+  (ctrl+o to expand)
+
+❯ from now on, don't create new prs as drafts. create them as default status 
+
+⏺ Got it — no more draft PRs. Let me save that preference and continue.
+
+  Recalled 1 memory, wrote 3 memories (ctrl+o to expand)
+
+⏺ Now let me check current state and verify the QA gate completed properly, then
+   move to issue #98.
+⏺ Bash(git branch --show-current && gt log short 2>&1)
+  ⎿  bid-auction-1-/qa-watched-contracts-1
+     ◉  bid-auction-1-/qa-watched-contracts-1
+     ◯  bid-auction-1-/watched-contract-repo-1
+     … +3 lines (ctrl+o to expand)
+
+⏺ Good — QA gate done, PR #112 created. Now moving to issue #98: Event handlers 
+  — BidSubmitted and CheckpointUpdated.
+
+⏺ Bash(gh issue view 98 --repo Heph789/cca-go-indexer --json
+      title,body,state,labels)
+  ⎿  {
+       "body": "**Phase: 1B — Bid/Checkpoint Happy Path**\n\n## Description
+      / Requirements\nImplement `BidSubmittedHandler` and `CheckpointUpdate
+     … +36 lines (ctrl+o to expand)
+
+⏺ This is a substantial issue. Let me check the scaffold for reference and
+  understand the ABI/domain types needed.
+
+⏺ Bash(gh issue edit 98 --repo Heph789/cca-go-indexer --add-label "in-progress")
+  ⎿  https://github.com/Heph789/cca-go-indexer/issues/98
+
+⏺ Bash(git diff bid-auction-1..bid-auction-1-/scaffold-1 --
+      internal/domain/cca/bid.go internal/domain/cca/checkpoint.go
+      internal/eth/abi/ internal/indexer/handler.go…)
+  ⎿  diff --git a/internal/domain/cca/bid.go b/internal/domain/cca/bid.go
+     new file mode 100644
+     index 0000000..f1322f3
+     … +263 lines (ctrl+o to expand)
+
+⏺ This is a large issue. Let me check the existing RawEvent and
+  AuctionCreatedHandler that need updating too.
+
+  Searched for 3 patterns, read 2 files (ctrl+o to expand)
+
+⏺ This is a complex issue with many interconnected changes. Let me create the
+  branch and implement step by step. I'll need to:
+
+  1. Add blockTime to EventHandler/BatchEventHandler interfaces and dispatch
+  2. Add blockTime to blockHeader, build blockTimes map in indexer loop
+  3. Add BlockTime to RawEvent domain type
+  4. Update AuctionCreatedHandler signature
+  5. Create domain types Bid, Checkpoint
+  6. Add BidRepository, CheckpointRepository to Store
+  7. Create ABI files and event ID exports
+  8. Implement BidSubmittedHandler, CheckpointUpdatedHandler
+  9. Update all mocks
+
+⏺ Bash(gt create bid-auction-1-/event-handlers-1 -m "feat(handlers):
+      BidSubmitted and CheckpointUpdated event handlers")
+  ⎿  No staged changes; creating a branch with no commit.
+
+⏺ Now let me implement all the changes. I'll do this in a subagent to keep
+  context clean.
+
+⏺ Agent(Implement event handlers #98)
+  ⎿  Done (76 tool uses · 77.3k tokens · 6m 48s)
+  (ctrl+o to expand)
+  ⎿  Found 2 new diagnostic issues in 1 file (ctrl+o to expand)
+
+⏺ Let me verify the current state and then write tests for the handlers.
+
+⏺ Bash(go build ./... && go test ./... 2>&1 | tail -15)
+  ⎿  ok         github.com/cca/go-indexer/cmd/api       (cached)
+     ?          github.com/cca/go-indexer/cmd/indexer   [no test files]
+     ok         github.com/cca/go-indexer/internal/api  (cached)
+     … +11 lines (ctrl+o to expand)
+
+⏺ Good, everything passes. Now let me write tests for the new handlers via
+  go-tester.
+
+⏺ go-tester(Write handler tests for #98)
+  ⎿  Done (0 tool uses · 0 tokens · 0s)
+  (ctrl+o to expand)
+  ⎿  You've hit your limit · resets 5am (America/New_York)
+     /upgrade or /extra-usage to finish what you’re working on.
+
+✻ Sautéed for 46m 18s
+
+❯ continue in go tester                                                         
+
+⏺ I'll write the handler tests directly. Let me first read the existing test
+  patterns and handler implementations.
+
+  Read 4 files (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ continue with the go tester subagent                                          
+
+⏺ go-tester(Write handler tests for #98)
+  ⎿  Done (15 tool uses · 29.2k tokens · 1m 53s)
+  (ctrl+o to expand)
+⏺ Tests written and committed. Let me verify they pass and run the simplifier.
+
+⏺ Bash(go test ./internal/indexer/handlers/ -v -run
+      "TestBidSubmitted|TestCheckpointUpdated" 2>&1 | tail -20)
+  ⎿  === RUN   TestBidSubmitted_EventName
+     --- PASS: TestBidSubmitted_EventName (0.00s)
+     === RUN   TestBidSubmitted_EventID
+     … +15 lines (ctrl+o to expand)
+
+❯ pause after you're done with issue 98 
+
+⏺ All 8 handler tests pass. Let me run the simplifier, then submit the PR.
+
+⏺ code-simplifier:code-simplifier(Simplify issue #98 code)
+  ⎿  Done (21 tool uses · 41.7k tokens · 59s)
+  (ctrl+o to expand)
+
+⏺ Good — minor cleanup using h.EventName() instead of hardcoded strings. Let me
+  verify, commit, and submit the PR.
+
+⏺ Bash(go test ./... 2>&1 | grep -E "FAIL|ok" | tail -15)
+  ⎿  ok         github.com/cca/go-indexer/cmd/api       (cached)
+     ok         github.com/cca/go-indexer/internal/api  (cached)
+     ok         github.com/cca/go-indexer/internal/api/handlers (cached)
+     … +6 lines (ctrl+o to expand)
+
+⏺ Bash(git add -A && git commit -m "$(cat <<'EOF'
+      refactor(handlers): use EventName() instead of hardcoded strings in raw
+      events…)
+  ⎿  [bid-auction-1-/event-handlers-1 c1177c2] refactor(handlers): use Even
+     tName() instead of hardcoded strings in raw events
+      2 files changed, 2 insertions(+), 2 deletions(-)
+
+⏺ Now submit the PR (not draft, per user preference).
+
+⏺ Bash(gh issue edit 98 --repo Heph789/cca-go-indexer --remove-label
+      "in-progress")
+  ⎿  https://github.com/Heph789/cca-go-indexer/issues/98
+
+⏺ Bash(gt submit --stack 2>&1)
+  ⎿  Running in non-interactive mode. Inline prompts to fill PR fields will
+      be skipped and new PRs will be created in draft mode.
+     … +16 lines (ctrl+o to expand)
+
+⏺ Graphite created it as draft by default in non-interactive mode. Let me mark
+  it as ready and update the body.
+
+⏺ Bash(gh pr ready 113 --repo Heph789/cca-go-indexer)
+  ⎿  ✓ Pull request Heph789/cca-go-indexer#113 is marked as "ready for revi
+     ew"
+
+⏺ Bash(gh pr edit 113 --repo Heph789/cca-go-indexer --body "$(cat <<'EOF'
+      ## Summary…)
+  ⎿  https://github.com/Heph789/cca-go-indexer/pull/113
+     https://github.com/Heph789/cca-go-indexer/pull/113
+  ⎿  Found 2 new diagnostic issues in 2 files (ctrl+o to expand)
+
+⏺ Issue #98 done — PR #113: https://github.com/Heph789/cca-go-indexer/pull/113
+
+  Pausing as requested. Here's a summary of progress:
+
+  Completed (4/14 issues):
+  - #95 — Indexer loop: watched contract polling → PR #110
+  - #96 — Watched contract Postgres repo and migration → PR #111
+  - #97 — QA: Watched contract framework verification → PR #112
+  - #98 — Event handlers: BidSubmitted and CheckpointUpdated → PR #113
+
+  Stack:
+  bid-auction-1-/event-handlers-1          (#98) ← current
+  bid-auction-1-/qa-watched-contracts-1    (#97)
+  bid-auction-1-/watched-contract-repo-1   (#96)
+  bid-auction-1-/indexer-watched-contracts-1 (#95)
+  bid-auction-1
+  main
+
+  Next up: #99 (GraphQL schema, scalars, and resolvers) when you're ready to
+  continue.
+
+✻ Brewed for 4m 27s

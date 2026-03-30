@@ -1,6 +1,6 @@
 ---
 name: implement-issues
-description: Sequentially implement GitHub sub-issues from a parent issue using TDD (red-green-simplify), creating Graphite-tracked branches, commits, and stacked draft PRs for each.
+description: Sequentially implement GitHub sub-issues from a parent issue using TDD (red-green-simplify), creating Graphite-tracked branches, commits, and stacked PRs for each.
 argument-hint: "GitHub parent issue URL"
 ---
 
@@ -35,21 +35,27 @@ gh issue edit <ISSUE_NUMBER> --add-label "in-progress"
 
 ### 2. Branch
 
-Create a new Graphite-tracked branch from the previous issue's branch:
+Before the first issue, ensure the base branch is tracked in Graphite. If `gt log short` shows "untracked", run:
 
 ```bash
-gt branch create <branch-name>
+gt track --parent <parent-branch>
 ```
 
-This automatically tracks the parent branch in Graphite's stack metadata, so later operations like `gt stack restack` and `gt stack submit` work correctly.
+Then create a new Graphite-tracked branch:
+
+```bash
+gt create <branch-name>
+```
+
+`gt create` automatically tracks the parent branch in Graphite's stack metadata, so later operations like `gt restack --stack` and `gt submit --stack` work correctly.
 
 ### 3. Red Phase — Tests First
 
-Use the `go-tester` agent to create tests before any implementation. This agent writes table-driven tests with thorough comments so reviewers can quickly understand what's being tested and why. Create commits along the way and after finishing all tests. Ensure the tests run and fail.
+Use the `go-tester` agent to create tests before any implementation. The ONLY code allowed before go-tester are interfaces and stubs required to build the tests. Do NOT write any implementation code before the tests exist and fail. Verify the tests compile and fail (red) before proceeding to Step 4.
 
 ### 4. Green Phase — Implementation
 
-Use a subagent to implement the issue such that the tests pass. This subagent should implement test by test, committing at each step.
+Use a subagent to implement the issue such that the tests pass. Do NOT implement inline — always delegate to a subagent. This subagent should implement test by test, committing at each step.
 
 **Commenting standards:**
 - Every exported function and method gets a Go doc comment explaining what it does, its parameters, and its return values.
@@ -58,11 +64,11 @@ Use a subagent to implement the issue such that the tests pass. This subagent sh
 
 ### 5. Simplify
 
-Use the simplifier agent to clean up the code. Watch especially for dead code.
+Use the simplifier (code-simplifier:code-simplifier) agent to clean up the code. Watch especially for dead code.
 
 ## Subagent Discipline
 
-Steps 3, 4, and 5 MUST be performed by subagents — never in the implementor's own context. If a subagent call fails due to an API error or transient failure, retry the subagent call. Do NOT fall back to doing the work inline.
+Steps 3, 4, and 5 MUST be performed by subagents — never in the implementor's own context. This is non-negotiable: do NOT read source files and start writing production code or tests inline. The main agent's role is orchestration only — triage, branching, committing, PR submission, and launching subagents. If a subagent call fails due to an API error or transient failure, retry the subagent call. Do NOT fall back to doing the work inline.
 
 ### 6. PR
 
@@ -75,16 +81,18 @@ gh issue edit <ISSUE_NUMBER> --remove-label "in-progress"
 Submit the stack to create or update PRs for all branches in the stack:
 
 ```bash
-gt stack submit --draft
+gt submit --stack
 ```
 
-This creates a draft PR for the current branch (and updates any existing PRs in the stack). Graphite automatically sets the correct base branch and adds a stack overview to the PR description.
+This creates a PR for the current branch (and updates any existing PRs in the stack). Graphite automatically sets the correct base branch and adds a stack overview to the PR description.
 
-After submitting, add the `pending review` label:
+After submitting, add the `pending review` label to **every** PR created or updated in the stack:
 
 ```bash
 gh pr edit <PR_NUMBER> --add-label "pending review"
 ```
+
+Do not skip this step for any PR.
 
 **Link the PR to the issue.** Because stacked PRs merge into other feature branches (not `main`), GitHub's `Closes #N` keyword will NOT auto-close issues. Instead:
 
@@ -104,17 +112,22 @@ Move on to the next sub-issue.
 
 ## QA Gate Handling
 
-When triage identifies a `[QA]` issue, delegate it entirely to a subagent to preserve the main agent's context. The subagent runs the full QA gate process.
+When triage identifies a `[QA]` issue, delegate it entirely to a `qa-gate` subagent to preserve the main agent's context.
 
-### Subagent Setup
+### Launch the Subagent
 
-Launch a subagent with:
-- The full contents of the `/implement-qa-gate` skill instructions
-- The QA gate issue URL/number
-- The current branch name (so it knows where to create the gate branch)
-- The previous gate branch name (for red-phase verification)
+Launch a `qa-gate` agent with a prompt containing:
+- The QA gate issue number and repo (`<OWNER/REPO>`)
+- The current gate branch name (created via `gt create <gate-branch-name>` before launching)
+- The red phase branch name (the previous gate branch, or the parent branch for the first gate)
 
-The subagent handles everything: branch creation, test plan design, building the harness, red/green phases, and PR submission.
+Example prompt:
+
+> Implement QA gate for issue #97 in repo Heph789/cca-go-indexer.
+> Current gate branch: `bid-auction-1-/qa-watched-contracts-1`
+> Red phase branch: `bid-auction-1-/watched-contract-repo-1`
+
+The agent handles everything: reading the issue, designing experiments, building the harness, red/green phases, committing, and PR submission.
 
 ### After the Subagent Completes
 
@@ -129,7 +142,7 @@ If the subagent fails, retry it. Do NOT fall back to running the QA gate inline.
 If a previous branch in the stack is updated (e.g., from review feedback), restack all downstream branches:
 
 ```bash
-gt stack restack
+gt restack --stack
 ```
 
 This rebases all branches in the stack on top of their updated parents. Graphite handles the cascade automatically — no manual per-branch rebasing needed.
@@ -139,10 +152,10 @@ This rebases all branches in the stack on top of their updated parents. Graphite
 When PRs are approved and ready to merge, use Graphite to merge the stack bottom-up:
 
 ```bash
-gt stack submit  # ensure all PRs are up to date
+gt submit --stack  # ensure all PRs are up to date
 ```
 
-As each PR merges, Graphite automatically retargets the next PR's base to the correct branch. You can also merge individual PRs and then run `gt stack restack` to update the rest of the chain.
+As each PR merges, Graphite automatically retargets the next PR's base to the correct branch. You can also merge individual PRs and then run `gt restack --stack` to update the rest of the chain.
 
 ## Compaction
 
