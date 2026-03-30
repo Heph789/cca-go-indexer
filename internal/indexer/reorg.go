@@ -68,14 +68,8 @@ func handleReorg(ctx context.Context, logger *slog.Logger, ethClient eth.Client,
 	rollbackFrom := ancestor + 1
 
 	err := s.WithTx(ctx, func(txStore store.Store) error {
-		if err := txStore.RawEventRepo().DeleteFromBlock(ctx, chainID, rollbackFrom); err != nil {
-			return fmt.Errorf("delete raw events: %w", err)
-		}
-		if err := txStore.AuctionRepo().DeleteFromBlock(ctx, chainID, rollbackFrom); err != nil {
-			return fmt.Errorf("delete auctions: %w", err)
-		}
-		if err := txStore.BlockRepo().DeleteFrom(ctx, chainID, rollbackFrom); err != nil {
-			return fmt.Errorf("delete blocks: %w", err)
+		if err := txStore.RollbackFromBlock(ctx, chainID, rollbackFrom); err != nil {
+			return err
 		}
 
 		ancestorHash, err := txStore.BlockRepo().GetHash(ctx, chainID, ancestor)
