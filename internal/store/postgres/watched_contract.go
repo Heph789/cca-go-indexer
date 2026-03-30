@@ -14,12 +14,19 @@ type watchedContractRepo struct {
 	q querier
 }
 
-// Insert adds a new watched contract record.
+// Insert adds a new watched contract record. Duplicate (chain_id, address)
+// pairs are silently ignored for idempotent writes.
 func (r *watchedContractRepo) Insert(ctx context.Context, contract *cca.WatchedContract) error {
 	_, err := r.q.Exec(ctx,
-		`INSERT INTO watched_contracts (chain_id, address, label, start_block, last_indexed_block)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		contract.ChainID, contract.Address.Hex(), contract.Label, contract.StartBlock, contract.LastIndexedBlock,
+		`INSERT INTO watched_contracts (chain_id, address, label, start_block, start_block_time, last_indexed_block)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT (chain_id, address) DO NOTHING`,
+		contract.ChainID,
+		lowerHex(contract.Address),
+		contract.Label,
+		contract.StartBlock,
+		contract.StartBlockTime,
+		contract.LastIndexedBlock,
 	)
 	if err != nil {
 		return fmt.Errorf("insert watched contract: %w", err)
@@ -53,7 +60,7 @@ func (r *watchedContractRepo) ListCaughtUp(ctx context.Context, chainID int64, g
 // ListNeedingBackfill returns contracts whose last_indexed_block < globalCursor.
 func (r *watchedContractRepo) ListNeedingBackfill(ctx context.Context, chainID int64, globalCursor uint64) ([]*cca.WatchedContract, error) {
 	rows, err := r.q.Query(ctx,
-		`SELECT chain_id, address, label, start_block, last_indexed_block, created_at, updated_at
+		`SELECT chain_id, address, label, start_block, start_block_time, last_indexed_block, created_at, updated_at
 		 FROM watched_contracts
 		 WHERE chain_id = $1 AND last_indexed_block < $2
 		 ORDER BY start_block ASC`,
@@ -68,7 +75,7 @@ func (r *watchedContractRepo) ListNeedingBackfill(ctx context.Context, chainID i
 	for rows.Next() {
 		var c cca.WatchedContract
 		var addrHex string
-		if err := rows.Scan(&c.ChainID, &addrHex, &c.Label, &c.StartBlock, &c.LastIndexedBlock, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&c.ChainID, &addrHex, &c.Label, &c.StartBlock, &c.StartBlockTime, &c.LastIndexedBlock, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan watched contract: %w", err)
 		}
 		c.Address = common.HexToAddress(addrHex)
@@ -78,11 +85,11 @@ func (r *watchedContractRepo) ListNeedingBackfill(ctx context.Context, chainID i
 }
 
 // UpdateLastIndexedBlock advances the per-contract cursor.
-func (r *watchedContractRepo) UpdateLastIndexedBlock(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error {
+func (r *watchedContractRepo) UpdateLastIndexedBlock(ctx context.Context, chainID int64, address common.Address, lastIndexedBlock uint64) error {
 	_, err := r.q.Exec(ctx,
 		`UPDATE watched_contracts SET last_indexed_block = $1, updated_at = now()
 		 WHERE chain_id = $2 AND address = $3`,
-		lastIndexedBlock, chainID, address,
+		lastIndexedBlock, chainID, lowerHex(address),
 	)
 	if err != nil {
 		return fmt.Errorf("update last indexed block: %w", err)

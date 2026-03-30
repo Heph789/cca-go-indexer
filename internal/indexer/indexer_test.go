@@ -1468,13 +1468,13 @@ func TestIndexer_UpdatesWatchedContractCursorsAfterBatch(t *testing.T) {
 
 	// Track UpdateLastIndexedBlock calls: map address -> block number.
 	type cursorUpdate struct {
-		address string
+		address common.Address
 		block   uint64
 	}
 	var updates []cursorUpdate
 	ctx, cancel := context.WithCancel(context.Background())
 
-	s.watchedContractRepo.UpdateLastIndexedBlockFn = func(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error {
+	s.watchedContractRepo.UpdateLastIndexedBlockFn = func(ctx context.Context, chainID int64, address common.Address, lastIndexedBlock uint64) error {
 		updates = append(updates, cursorUpdate{address: address, block: lastIndexedBlock})
 		return nil
 	}
@@ -1502,14 +1502,14 @@ func TestIndexer_UpdatesWatchedContractCursorsAfterBatch(t *testing.T) {
 	// The batch range is [101, 110] so the `to` value should be 110.
 	wantBlock := uint64(110)
 
-	updateSet := make(map[string]uint64, len(updates))
+	updateSet := make(map[common.Address]uint64, len(updates))
 	for _, u := range updates {
 		updateSet[u.address] = u.block
 	}
 
 	// Verify each watched address was updated to the correct block.
 	for _, want := range []common.Address{watchedAddr1, watchedAddr2} {
-		gotBlock, ok := updateSet[want.Hex()]
+		gotBlock, ok := updateSet[want]
 		if !ok {
 			t.Errorf("expected UpdateLastIndexedBlock call for %s, but none was made", want.Hex())
 			continue
@@ -1560,7 +1560,7 @@ func TestIndexer_CursorUpdatesInsideTx(t *testing.T) {
 	var updateCalledInTx bool
 
 	txWatchedContractRepo := &mockWatchedContractRepo{}
-	txWatchedContractRepo.UpdateLastIndexedBlockFn = func(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error {
+	txWatchedContractRepo.UpdateLastIndexedBlockFn = func(ctx context.Context, chainID int64, address common.Address, lastIndexedBlock uint64) error {
 		if withinTx {
 			updateCalledInTx = true
 		}

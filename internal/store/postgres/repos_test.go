@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"testing"
 
+	"time"
+
 	"github.com/cca/go-indexer/internal/domain/cca"
 	"github.com/cca/go-indexer/internal/store"
 	"github.com/ethereum/go-ethereum/common"
@@ -15,7 +17,7 @@ func truncateAll(t *testing.T, s store.Store) {
 	t.Helper()
 	ps := s.(*pgStore)
 	ctx := context.Background()
-	_, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexed_blocks, raw_events, event_ccaf_auction_created")
+	_, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexed_blocks, raw_events, event_ccaf_auction_created, watched_contracts")
 	if err != nil {
 		t.Fatalf("truncate: %v", err)
 	}
@@ -510,5 +512,371 @@ func TestWithTx_RollbackDiscardsWrites(t *testing.T) {
 	}
 	if block != 0 || hash != (common.Hash{}) {
 		t.Errorf("expected (0, empty) after rollback, got (%d, %q)", block, hash)
+	}
+}
+
+// ---------- WatchedContract helpers ----------
+
+// makeWatchedContract builds a WatchedContract with sensible defaults.
+// callers can override fields after creation.
+func makeWatchedContract(chainID int64, addr common.Address, startBlock, lastIndexed uint64) *cca.WatchedContract {
+	return &cca.WatchedContract{
+		ChainID:          chainID,
+		Address:          addr,
+		Label:            "test-contract",
+		StartBlock:       startBlock,
+		StartBlockTime:   time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC),
+		LastIndexedBlock: lastIndexed,
+	}
+}
+
+// ---------- WatchedContract tests ----------
+
+// TestWatchedContract_Insert_StoresContract verifies that inserting a watched
+// contract persists all key fields. We read it back via ListNeedingBackfill
+// (with a cursor above the contract's last_indexed_block) to confirm the
+// round-trip.
+func TestWatchedContract_Insert_StoresContract(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	wantChainID := int64(1)
+	wantAddr := common.HexToAddress("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	wantLabel := "auction-factory"
+	wantStartBlock := uint64(100)
+	wantLastIndexed := uint64(50)
+
+	wc := makeWatchedContract(wantChainID, wantAddr, wantStartBlock, wantLastIndexed)
+	wc.Label = wantLabel
+
+	err := s.WatchedContractRepo().Insert(ctx, wc)
+	if err != nil {
+		t.Fatalf("Insert: %v", err)
+	}
+
+	// Use a globalCursor above last_indexed_block so the contract appears in
+	// the "needing backfill" set.
+	globalCursor := uint64(51)
+	contracts, err := s.WatchedContractRepo().ListNeedingBackfill(ctx, wantChainID, globalCursor)
+	if err != nil {
+		t.Fatalf("ListNeedingBackfill: %v", err)
+	}
+
+	wantCount := 1
+	if len(contracts) != wantCount {
+		t.Fatalf("expected %d contract(s), got %d", wantCount, len(contracts))
+	}
+
+	got := contracts[0]
+	if got.ChainID != wantChainID {
+		t.Errorf("ChainID: got %d, want %d", got.ChainID, wantChainID)
+	}
+	if got.Address != wantAddr {
+		t.Errorf("Address: got %s, want %s", got.Address.Hex(), wantAddr.Hex())
+	}
+	if got.Label != wantLabel {
+		t.Errorf("Label: got %q, want %q", got.Label, wantLabel)
+	}
+	if got.StartBlock != wantStartBlock {
+		t.Errorf("StartBlock: got %d, want %d", got.StartBlock, wantStartBlock)
+	}
+	if got.LastIndexedBlock != wantLastIndexed {
+		t.Errorf("LastIndexedBlock: got %d, want %d", got.LastIndexedBlock, wantLastIndexed)
+	}
+}
+
+// TestWatchedContract_Insert_IdempotentOnConflict verifies that inserting the
+// same (chain_id, address) pair twice does not return an error and does not
+// create a duplicate row. The ON CONFLICT DO NOTHING clause should silently
+// discard the second write.
+func TestWatchedContract_Insert_IdempotentOnConflict(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	addr := common.HexToAddress("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB")
+	wc := makeWatchedContract(1, addr, 10, 0)
+
+	// First insert should succeed.
+	if err := s.WatchedContractRepo().Insert(ctx, wc); err != nil {
+		t.Fatalf("first Insert: %v", err)
+	}
+
+	// Second insert of the same contract should also succeed (no error).
+	if err := s.WatchedContractRepo().Insert(ctx, wc); err != nil {
+		t.Fatalf("duplicate Insert should not error: %v", err)
+	}
+
+	// Verify exactly one row exists by querying directly.
+	ps := s.(*pgStore)
+	var count int
+	wantCount := 1
+	err := ps.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM watched_contracts WHERE chain_id = $1 AND address = $2",
+		int64(1), lowerHex(addr),
+	).Scan(&count)
+	if err != nil {
+		t.Fatalf("count query: %v", err)
+	}
+	if count != wantCount {
+		t.Errorf("expected %d row(s), got %d", wantCount, count)
+	}
+}
+
+// TestWatchedContract_ListCaughtUp_ReturnsOnlyCaughtUp inserts three contracts
+// with different last_indexed_block values and verifies that ListCaughtUp only
+// returns those whose cursor is at or above the supplied globalCursor.
+func TestWatchedContract_ListCaughtUp_ReturnsOnlyCaughtUp(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	// Contract A: last_indexed_block = 100 (behind cursor)
+	addrA := common.HexToAddress("0x0000000000000000000000000000000000000AAA")
+	// Contract B: last_indexed_block = 200 (exactly at cursor)
+	addrB := common.HexToAddress("0x0000000000000000000000000000000000000BBB")
+	// Contract C: last_indexed_block = 300 (ahead of cursor)
+	addrC := common.HexToAddress("0x0000000000000000000000000000000000000CCC")
+
+	_ = s.WatchedContractRepo().Insert(ctx, makeWatchedContract(chainID, addrA, 10, 100))
+	_ = s.WatchedContractRepo().Insert(ctx, makeWatchedContract(chainID, addrB, 20, 200))
+	_ = s.WatchedContractRepo().Insert(ctx, makeWatchedContract(chainID, addrC, 30, 300))
+
+	// globalCursor = 200: contracts B (==200) and C (>200) should be caught up.
+	globalCursor := uint64(200)
+	addrs, err := s.WatchedContractRepo().ListCaughtUp(ctx, chainID, globalCursor)
+	if err != nil {
+		t.Fatalf("ListCaughtUp: %v", err)
+	}
+
+	wantCount := 2
+	if len(addrs) != wantCount {
+		t.Fatalf("expected %d caught-up addresses, got %d", wantCount, len(addrs))
+	}
+
+	// Build a set of returned addresses for easier assertion.
+	got := make(map[common.Address]bool)
+	for _, a := range addrs {
+		got[a] = true
+	}
+
+	// Contract A should NOT be in the result (100 < 200).
+	if got[addrA] {
+		t.Errorf("contract A (last_indexed_block=100) should not be caught up at cursor 200")
+	}
+	// Contract B should be in the result (200 >= 200).
+	if !got[addrB] {
+		t.Errorf("contract B (last_indexed_block=200) should be caught up at cursor 200")
+	}
+	// Contract C should be in the result (300 >= 200).
+	if !got[addrC] {
+		t.Errorf("contract C (last_indexed_block=300) should be caught up at cursor 200")
+	}
+}
+
+// TestWatchedContract_ListNeedingBackfill_ReturnsOnlyBehind inserts contracts
+// at different cursor positions and verifies ListNeedingBackfill returns only
+// those behind the globalCursor, ordered by start_block ASC.
+func TestWatchedContract_ListNeedingBackfill_ReturnsOnlyBehind(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	// Contract A: start_block=30, last_indexed_block=100 (behind cursor)
+	addrA := common.HexToAddress("0x0000000000000000000000000000000000000AAA")
+	// Contract B: start_block=10, last_indexed_block=50 (behind cursor, earlier start)
+	addrB := common.HexToAddress("0x0000000000000000000000000000000000000BBB")
+	// Contract C: start_block=20, last_indexed_block=200 (caught up, should be excluded)
+	addrC := common.HexToAddress("0x0000000000000000000000000000000000000CCC")
+
+	_ = s.WatchedContractRepo().Insert(ctx, makeWatchedContract(chainID, addrA, 30, 100))
+	_ = s.WatchedContractRepo().Insert(ctx, makeWatchedContract(chainID, addrB, 10, 50))
+	_ = s.WatchedContractRepo().Insert(ctx, makeWatchedContract(chainID, addrC, 20, 200))
+
+	// globalCursor = 200: A (100 < 200) and B (50 < 200) need backfill.
+	globalCursor := uint64(200)
+	contracts, err := s.WatchedContractRepo().ListNeedingBackfill(ctx, chainID, globalCursor)
+	if err != nil {
+		t.Fatalf("ListNeedingBackfill: %v", err)
+	}
+
+	wantCount := 2
+	if len(contracts) != wantCount {
+		t.Fatalf("expected %d contracts, got %d", wantCount, len(contracts))
+	}
+
+	// Results should be ordered by start_block ASC: B (start=10) before A (start=30).
+	wantFirstAddr := addrB
+	wantSecondAddr := addrA
+	if contracts[0].Address != wantFirstAddr {
+		t.Errorf("first contract: got address %s, want %s", contracts[0].Address.Hex(), wantFirstAddr.Hex())
+	}
+	if contracts[1].Address != wantSecondAddr {
+		t.Errorf("second contract: got address %s, want %s", contracts[1].Address.Hex(), wantSecondAddr.Hex())
+	}
+
+	// Contract C (last_indexed_block=200, which is NOT < 200) must not appear.
+	for _, c := range contracts {
+		if c.Address == addrC {
+			t.Errorf("contract C (last_indexed_block=200) should not need backfill at cursor 200")
+		}
+	}
+}
+
+// TestWatchedContract_UpdateLastIndexedBlock_AdvancesCursor verifies that
+// calling UpdateLastIndexedBlock moves a contract's cursor forward. After the
+// update the contract should appear in the caught-up set for the new cursor
+// value.
+func TestWatchedContract_UpdateLastIndexedBlock_AdvancesCursor(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	addr := common.HexToAddress("0x0000000000000000000000000000000000001111")
+	initialCursor := uint64(50)
+	wc := makeWatchedContract(chainID, addr, 10, initialCursor)
+	_ = s.WatchedContractRepo().Insert(ctx, wc)
+
+	// Advance the cursor to 200.
+	newCursor := uint64(200)
+	err := s.WatchedContractRepo().UpdateLastIndexedBlock(ctx, chainID, addr, newCursor)
+	if err != nil {
+		t.Fatalf("UpdateLastIndexedBlock: %v", err)
+	}
+
+	// At globalCursor=200, the contract should now be caught up (last_indexed_block >= 200).
+	addrs, err := s.WatchedContractRepo().ListCaughtUp(ctx, chainID, newCursor)
+	if err != nil {
+		t.Fatalf("ListCaughtUp: %v", err)
+	}
+
+	wantCount := 1
+	if len(addrs) != wantCount {
+		t.Fatalf("expected %d caught-up address(es), got %d", wantCount, len(addrs))
+	}
+	if addrs[0] != addr {
+		t.Errorf("caught-up address: got %s, want %s", addrs[0].Hex(), addr.Hex())
+	}
+}
+
+// TestWatchedContract_RollbackCursors_ResetsAffectedOnly inserts three
+// contracts at varying cursor positions and calls RollbackCursors. Only
+// contracts whose last_indexed_block >= fromBlock should be reset to
+// fromBlock - 1; the rest must remain unchanged.
+func TestWatchedContract_RollbackCursors_ResetsAffectedOnly(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	// Contract A: cursor at 50 (below fromBlock, should NOT be affected)
+	addrA := common.HexToAddress("0x000000000000000000000000000000000000AAAA")
+	// Contract B: cursor at 100 (exactly at fromBlock, should be rolled back)
+	addrB := common.HexToAddress("0x000000000000000000000000000000000000BBBB")
+	// Contract C: cursor at 200 (above fromBlock, should be rolled back)
+	addrC := common.HexToAddress("0x000000000000000000000000000000000000CCCC")
+
+	_ = s.WatchedContractRepo().Insert(ctx, makeWatchedContract(chainID, addrA, 1, 50))
+	_ = s.WatchedContractRepo().Insert(ctx, makeWatchedContract(chainID, addrB, 1, 100))
+	_ = s.WatchedContractRepo().Insert(ctx, makeWatchedContract(chainID, addrC, 1, 200))
+
+	fromBlock := uint64(100)
+	wantRolledBackCursor := fromBlock - 1 // 99
+
+	err := s.WatchedContractRepo().RollbackCursors(ctx, chainID, fromBlock)
+	if err != nil {
+		t.Fatalf("RollbackCursors: %v", err)
+	}
+
+	// Contract A should still be at cursor 50 — check it is NOT caught up at 100
+	// but IS caught up at 50.
+	addrsAt50, _ := s.WatchedContractRepo().ListCaughtUp(ctx, chainID, 50)
+	gotA := false
+	for _, a := range addrsAt50 {
+		if a == addrA {
+			gotA = true
+		}
+	}
+	if !gotA {
+		t.Errorf("contract A should still be caught up at cursor 50 (unaffected by rollback)")
+	}
+
+	// Contracts B and C should now have last_indexed_block = 99.
+	// At globalCursor = 100 they should need backfill.
+	needBackfill, _ := s.WatchedContractRepo().ListNeedingBackfill(ctx, chainID, fromBlock)
+	wantBackfillCount := 2
+	if len(needBackfill) != wantBackfillCount {
+		t.Fatalf("expected %d contracts needing backfill, got %d", wantBackfillCount, len(needBackfill))
+	}
+	for _, c := range needBackfill {
+		if c.LastIndexedBlock != wantRolledBackCursor {
+			t.Errorf("contract %s: last_indexed_block = %d, want %d",
+				c.Address.Hex(), c.LastIndexedBlock, wantRolledBackCursor)
+		}
+	}
+}
+
+// TestRollbackFromBlock_IncludesWatchedContractCursors tests the pgStore-level
+// RollbackFromBlock method end-to-end, verifying that it rolls back watched
+// contract cursors in addition to deleting raw events and blocks. This is a
+// broader integration test than RollbackCursors alone.
+func TestRollbackFromBlock_IncludesWatchedContractCursors(t *testing.T) {
+	s := testStore(t)
+	truncateAll(t, s)
+	ctx := context.Background()
+
+	chainID := int64(1)
+	addr := common.HexToAddress("0x0000000000000000000000000000000000005555")
+	originalCursor := uint64(500)
+	wc := makeWatchedContract(chainID, addr, 1, originalCursor)
+	_ = s.WatchedContractRepo().Insert(ctx, wc)
+
+	// Also insert a block and raw event at the rollback point to confirm
+	// those are cleaned up too (ensures RollbackFromBlock is holistic).
+	fromBlock := uint64(300)
+	_ = s.BlockRepo().Insert(ctx, chainID, fromBlock, common.HexToHash("0xdeadbeef"), common.HexToHash("0xparent"))
+	_ = s.RawEventRepo().Insert(ctx, makeRawEvent(chainID, fromBlock, 0))
+
+	ps := s.(*pgStore)
+	err := ps.RollbackFromBlock(ctx, chainID, fromBlock)
+	if err != nil {
+		t.Fatalf("RollbackFromBlock: %v", err)
+	}
+
+	// The watched contract cursor should be rolled back to fromBlock - 1.
+	wantCursor := fromBlock - 1 // 299
+	contracts, err := s.WatchedContractRepo().ListNeedingBackfill(ctx, chainID, fromBlock)
+	if err != nil {
+		t.Fatalf("ListNeedingBackfill: %v", err)
+	}
+
+	wantCount := 1
+	if len(contracts) != wantCount {
+		t.Fatalf("expected %d contract(s) needing backfill, got %d", wantCount, len(contracts))
+	}
+	if contracts[0].LastIndexedBlock != wantCursor {
+		t.Errorf("LastIndexedBlock: got %d, want %d", contracts[0].LastIndexedBlock, wantCursor)
+	}
+
+	// Confirm block was also deleted.
+	hash, _ := s.BlockRepo().GetHash(ctx, chainID, fromBlock)
+	wantHash := common.Hash{}
+	if hash != wantHash {
+		t.Errorf("block at fromBlock should be deleted, got hash %s", hash.Hex())
+	}
+
+	// Confirm raw event was also deleted.
+	var eventCount int
+	_ = ps.pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM raw_events WHERE chain_id = $1 AND block_number >= $2",
+		chainID, fromBlock,
+	).Scan(&eventCount)
+	wantEventCount := 0
+	if eventCount != wantEventCount {
+		t.Errorf("expected %d raw events at fromBlock, got %d", wantEventCount, eventCount)
 	}
 }

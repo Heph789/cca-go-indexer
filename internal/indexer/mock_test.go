@@ -226,7 +226,7 @@ type mockWatchedContractRepo struct {
 	InsertFn                 func(ctx context.Context, contract *cca.WatchedContract) error
 	ListCaughtUpFn           func(ctx context.Context, chainID int64, globalCursor uint64) ([]common.Address, error)
 	ListNeedingBackfillFn    func(ctx context.Context, chainID int64, globalCursor uint64) ([]*cca.WatchedContract, error)
-	UpdateLastIndexedBlockFn func(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error
+	UpdateLastIndexedBlockFn func(ctx context.Context, chainID int64, address common.Address, lastIndexedBlock uint64) error
 	RollbackCursorsFn        func(ctx context.Context, chainID int64, fromBlock uint64) error
 }
 
@@ -251,7 +251,7 @@ func (m *mockWatchedContractRepo) ListNeedingBackfill(ctx context.Context, chain
 	return nil, nil
 }
 
-func (m *mockWatchedContractRepo) UpdateLastIndexedBlock(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error {
+func (m *mockWatchedContractRepo) UpdateLastIndexedBlock(ctx context.Context, chainID int64, address common.Address, lastIndexedBlock uint64) error {
 	if m.UpdateLastIndexedBlockFn != nil {
 		return m.UpdateLastIndexedBlockFn(ctx, chainID, address, lastIndexedBlock)
 	}
