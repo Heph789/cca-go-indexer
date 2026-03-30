@@ -242,7 +242,7 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			}
 
 			for _, addr := range caughtUp {
-				if err := txStore.WatchedContractRepo().UpdateLastIndexedBlock(ctx, idx.config.ChainID, addr.Hex(), to); err != nil {
+				if err := txStore.WatchedContractRepo().UpdateLastIndexedBlock(ctx, idx.config.ChainID, addr, to); err != nil {
 					return fmt.Errorf("updating watched contract cursor for %s: %w", addr.Hex(), err)
 				}
 			}

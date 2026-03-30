@@ -148,8 +148,8 @@ func (s *pgStore) RollbackFromBlock(ctx context.Context, chainID int64, fromBloc
 	if _, err := q.Exec(ctx, "DELETE FROM event_ccaf_auction_created WHERE chain_id = $1 AND block_number >= $2", chainID, fromBlock); err != nil {
 		return fmt.Errorf("delete auctions: %w", err)
 	}
-	if _, err := q.Exec(ctx, "UPDATE watched_contracts SET last_indexed_block = $1 - 1 WHERE chain_id = $2 AND last_indexed_block >= $1", fromBlock, chainID); err != nil {
-		return fmt.Errorf("rollback watched contract cursors: %w", err)
+	if err := s.WatchedContractRepo().RollbackCursors(ctx, chainID, fromBlock); err != nil {
+		return err
 	}
 	if _, err := q.Exec(ctx, "DELETE FROM indexed_blocks WHERE chain_id = $1 AND block_number >= $2", chainID, fromBlock); err != nil {
 		return fmt.Errorf("delete blocks: %w", err)

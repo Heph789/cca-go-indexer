@@ -743,7 +743,7 @@ func TestWatchedContract_UpdateLastIndexedBlock_AdvancesCursor(t *testing.T) {
 
 	// Advance the cursor to 200.
 	newCursor := uint64(200)
-	err := s.WatchedContractRepo().UpdateLastIndexedBlock(ctx, chainID, lowerHex(addr), newCursor)
+	err := s.WatchedContractRepo().UpdateLastIndexedBlock(ctx, chainID, addr, newCursor)
 	if err != nil {
 		t.Fatalf("UpdateLastIndexedBlock: %v", err)
 	}

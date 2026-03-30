@@ -42,7 +42,7 @@ type WatchedContractRepository interface {
 	// meaning they need to be backfilled before joining forward polling.
 	ListNeedingBackfill(ctx context.Context, chainID int64, globalCursor uint64) ([]*cca.WatchedContract, error)
 	// UpdateLastIndexedBlock advances the per-contract cursor to lastIndexedBlock.
-	UpdateLastIndexedBlock(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error
+	UpdateLastIndexedBlock(ctx context.Context, chainID int64, address common.Address, lastIndexedBlock uint64) error
 	// RollbackCursors sets last_indexed_block = fromBlock - 1 for any contract
 	// whose cursor is >= fromBlock, used during reorg recovery.
 	RollbackCursors(ctx context.Context, chainID int64, fromBlock uint64) error
