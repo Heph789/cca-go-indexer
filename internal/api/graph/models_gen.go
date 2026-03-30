@@ -3,6 +3,8 @@
 package graph
 
 import (
+	"math/big"
+
 	"github.com/cca/go-indexer/internal/domain/cca"
 )
 
@@ -14,6 +16,10 @@ type AuctionConnection struct {
 type AuctionEdge struct {
 	Node   *cca.Auction `json:"node"`
 	Cursor string       `json:"cursor"`
+}
+
+type BidHintResult struct {
+	PrevTickPrice *big.Int `json:"prevTickPrice"`
 }
 
 type PageInfo struct {
