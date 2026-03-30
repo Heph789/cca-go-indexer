@@ -79,7 +79,7 @@ func (h *BidSubmittedHandler) Handle(ctx context.Context, chainID int64, log typ
 		TxHash:      log.TxHash,
 		LogIndex:    log.Index,
 		Address:     log.Address,
-		EventName:   "BidSubmitted",
+		EventName:   h.EventName(),
 		TopicsJSON:  string(topicsJSON),
 		DataHex:     "0x" + hex.EncodeToString(log.Data),
 		DecodedJSON: string(decodedJSON),

@@ -73,7 +73,7 @@ func (h *CheckpointUpdatedHandler) Handle(ctx context.Context, chainID int64, lo
 		TxHash:      log.TxHash,
 		LogIndex:    log.Index,
 		Address:     log.Address,
-		EventName:   "CheckpointUpdated",
+		EventName:   h.EventName(),
 		TopicsJSON:  string(topicsJSON),
 		DataHex:     "0x" + hex.EncodeToString(log.Data),
 		DecodedJSON: string(decodedJSON),
