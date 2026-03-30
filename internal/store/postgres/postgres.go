@@ -121,6 +121,18 @@ func (s *pgStore) AuctionRepo() store.AuctionRepository {
 	return &auctionRepo{q: s.q()}
 }
 
+// BidRepo returns a stub BidRepository. The backing table is created in a
+// later migration (#100); until then callers must not invoke its methods.
+func (s *pgStore) BidRepo() store.BidRepository {
+	return nil
+}
+
+// CheckpointRepo returns a stub CheckpointRepository. The backing table is
+// created in a later migration (#100); until then callers must not invoke its methods.
+func (s *pgStore) CheckpointRepo() store.CheckpointRepository {
+	return nil
+}
+
 func (s *pgStore) RawEventRepo() store.RawEventRepository {
 	return &rawEventRepo{q: s.q()}
 }

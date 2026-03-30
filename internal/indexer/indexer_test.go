@@ -886,17 +886,19 @@ func TestIndexer_AllWritesInsideWithTx(t *testing.T) {
 	txBlockRepo := &mockBlockRepo{}
 	txCursorRepo := &mockCursorRepo{}
 	txStore := &mockStore{
-		auctionRepo:  s.auctionRepo,
-		rawEventRepo: s.rawEventRepo,
-		cursorRepo:   txCursorRepo,
-		blockRepo:    txBlockRepo,
+		auctionRepo:    s.auctionRepo,
+		bidRepo:        s.bidRepo,
+		checkpointRepo: s.checkpointRepo,
+		rawEventRepo:   s.rawEventRepo,
+		cursorRepo:     txCursorRepo,
+		blockRepo:      txBlockRepo,
 	}
 
 	var handlerUsedTxStore bool
 	var blockInsertUsedTxStore bool
 	var cursorUpsertUsedTxStore bool
 
-	handler.HandleFn = func(ctx context.Context, chainID int64, log types.Log, st store.Store) error {
+	handler.HandleFn = func(ctx context.Context, chainID int64, log types.Log, blockTime time.Time, st store.Store) error {
 		if st == txStore {
 			handlerUsedTxStore = true
 		}

@@ -32,6 +32,7 @@ const maxLoopRetries = 5
 type blockHeader struct {
 	hash       common.Hash
 	parentHash common.Hash
+	time       uint64
 }
 
 // ChainIndexer polls an EVM chain for logs, dispatches them through a
@@ -206,6 +207,7 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 				headers[block-from] = blockHeader{
 					hash:       header.Hash(),
 					parentHash: header.ParentHash,
+					time:       header.Time,
 				}
 				return nil
 			})
@@ -225,8 +227,14 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 
 		lastBlockHash := headers[to-from].hash
 
+		blockTimes := make(map[uint64]time.Time, len(headers))
+		for i, h := range headers {
+			block := from + uint64(i)
+			blockTimes[block] = time.Unix(int64(h.time), 0).UTC()
+		}
+
 		err = idx.store.WithTx(ctx, func(txStore store.Store) error {
-			if err := idx.registry.HandleLogs(ctx, idx.config.ChainID, logs, txStore); err != nil {
+			if err := idx.registry.HandleLogs(ctx, idx.config.ChainID, logs, blockTimes, txStore); err != nil {
 				return fmt.Errorf("handling logs: %w", err)
 			}
 

@@ -10,22 +10,28 @@ import (
 )
 
 type mockStore struct {
-	auctionRepo  *mockAuctionRepo
-	rawEventRepo *mockRawEventRepo
-	cursorRepo   *mockCursorRepo
-	blockRepo    *mockBlockRepo
+	auctionRepo    *mockAuctionRepo
+	bidRepo        *mockBidRepo
+	checkpointRepo *mockCheckpointRepo
+	rawEventRepo   *mockRawEventRepo
+	cursorRepo     *mockCursorRepo
+	blockRepo      *mockBlockRepo
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		auctionRepo:  &mockAuctionRepo{},
-		rawEventRepo: &mockRawEventRepo{},
-		cursorRepo:   &mockCursorRepo{},
-		blockRepo:    &mockBlockRepo{},
+		auctionRepo:    &mockAuctionRepo{},
+		bidRepo:        &mockBidRepo{},
+		checkpointRepo: &mockCheckpointRepo{},
+		rawEventRepo:   &mockRawEventRepo{},
+		cursorRepo:     &mockCursorRepo{},
+		blockRepo:      &mockBlockRepo{},
 	}
 }
 
 func (m *mockStore) AuctionRepo() store.AuctionRepository             { return m.auctionRepo }
+func (m *mockStore) BidRepo() store.BidRepository                     { return m.bidRepo }
+func (m *mockStore) CheckpointRepo() store.CheckpointRepository       { return m.checkpointRepo }
 func (m *mockStore) RawEventRepo() store.RawEventRepository           { return m.rawEventRepo }
 func (m *mockStore) CursorRepo() store.CursorRepository               { return m.cursorRepo }
 func (m *mockStore) BlockRepo() store.BlockRepository                 { return m.blockRepo }
@@ -108,4 +114,66 @@ func (m *mockBlockRepo) GetHash(ctx context.Context, chainID int64, blockNumber 
 }
 func (m *mockBlockRepo) DeleteFrom(ctx context.Context, chainID int64, fromBlock uint64) error {
 	return nil
+}
+
+type mockBidRepo struct {
+	InsertFn          func(ctx context.Context, bid *cca.Bid) error
+	InsertedBid       *cca.Bid
+	DeleteFromBlockFn func(ctx context.Context, chainID int64, fromBlock uint64) error
+}
+
+func (m *mockBidRepo) Insert(ctx context.Context, bid *cca.Bid) error {
+	m.InsertedBid = bid
+	if m.InsertFn != nil {
+		return m.InsertFn(ctx, bid)
+	}
+	return nil
+}
+
+func (m *mockBidRepo) DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error {
+	if m.DeleteFromBlockFn != nil {
+		return m.DeleteFromBlockFn(ctx, chainID, fromBlock)
+	}
+	return nil
+}
+
+func (m *mockBidRepo) ListByAuction(_ context.Context, _ int64, _ string, _ store.PaginationParams) ([]*cca.Bid, error) {
+	return nil, nil
+}
+
+func (m *mockBidRepo) ListByAuctionAndOwner(_ context.Context, _ int64, _ string, _ string, _ store.PaginationParams) ([]*cca.Bid, error) {
+	return nil, nil
+}
+
+func (m *mockBidRepo) GetPrevTickPrice(_ context.Context, _ int64, _ string, _ string) (string, error) {
+	return "", nil
+}
+
+type mockCheckpointRepo struct {
+	InsertFn             func(ctx context.Context, checkpoint *cca.Checkpoint) error
+	InsertedCheckpoint   *cca.Checkpoint
+	DeleteFromBlockFn    func(ctx context.Context, chainID int64, fromBlock uint64) error
+}
+
+func (m *mockCheckpointRepo) Insert(ctx context.Context, checkpoint *cca.Checkpoint) error {
+	m.InsertedCheckpoint = checkpoint
+	if m.InsertFn != nil {
+		return m.InsertFn(ctx, checkpoint)
+	}
+	return nil
+}
+
+func (m *mockCheckpointRepo) DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error {
+	if m.DeleteFromBlockFn != nil {
+		return m.DeleteFromBlockFn(ctx, chainID, fromBlock)
+	}
+	return nil
+}
+
+func (m *mockCheckpointRepo) GetLatest(_ context.Context, _ int64, _ string) (*cca.Checkpoint, error) {
+	return nil, nil
+}
+
+func (m *mockCheckpointRepo) ListByAuction(_ context.Context, _ int64, _ string, _ store.PaginationParams) ([]*cca.Checkpoint, error) {
+	return nil, nil
 }
