@@ -23,9 +23,11 @@ package indexer
 import (
 	"context"
 	"math/big"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+
 	ethereum "github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -618,14 +620,7 @@ func TestQA_ReorgCascadesRollbackToAllRepos(t *testing.T) {
 	}
 
 	// Verify cursor was reset to the ancestor and then advanced past it.
-	foundAncestorReset := false
-	for _, c := range cursorUpdates {
-		if c == 105 {
-			foundAncestorReset = true
-			break
-		}
-	}
-	if !foundAncestorReset {
+	if !slices.Contains(cursorUpdates, uint64(105)) {
 		t.Errorf("cursor was never reset to common ancestor 105; updates: %v", cursorUpdates)
 	}
 
@@ -771,15 +766,7 @@ func TestQA_AfterReorgResumesFromAncestor(t *testing.T) {
 	defer mu.Unlock()
 
 	// After reorg (ancestor=107), the next batch should start from 108.
-	// filterCalls: [101 (initial), 108 (post-reorg), ...]
-	found108 := false
-	for _, from := range filterCalls {
-		if from == 108 {
-			found108 = true
-			break
-		}
-	}
-	if !found108 {
+	if !slices.Contains(filterCalls, uint64(108)) {
 		t.Errorf("expected a FilterLogs call with FromBlock=108 after reorg, got calls: %v", filterCalls)
 	}
 }
@@ -958,14 +945,7 @@ func TestQA_GetPrevTickPriceAfterReorg(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		// Only produce bids in forward polling for the auction address.
-		hasAuction := false
-		for _, a := range q.Addresses {
-			if a == auctionAddr {
-				hasAuction = true
-				break
-			}
-		}
-		if !hasAuction {
+		if !slices.Contains(q.Addresses, auctionAddr) {
 			return nil, nil
 		}
 		from := q.FromBlock.Uint64()

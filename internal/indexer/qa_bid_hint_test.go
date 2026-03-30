@@ -166,7 +166,7 @@ func (m *graphqlMockCheckpointRepo) ListByAuction(_ context.Context, _ int64, _ 
 
 // graphqlQuery sends a GraphQL query via HTTP POST to the given handler and
 // returns the parsed JSON response.
-func graphqlQuery(t *testing.T, handler http.Handler, query string) map[string]interface{} {
+func graphqlQuery(t *testing.T, handler http.Handler, query string) map[string]any {
 	t.Helper()
 	body, _ := json.Marshal(map[string]string{"query": query})
 	req := httptest.NewRequest(http.MethodPost, "/graphql", bytes.NewReader(body))
@@ -174,7 +174,7 @@ func graphqlQuery(t *testing.T, handler http.Handler, query string) map[string]i
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	var resp map[string]interface{}
+	var resp map[string]any
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to parse GraphQL response: %v\nbody: %s", err, w.Body.String())
 	}
@@ -323,12 +323,12 @@ func TestQA_BidHintReturnsPrevTickPrice(t *testing.T) {
 		t.Fatalf("GraphQL returned errors (bidHint query not in schema?): %v", errs)
 	}
 
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected data in response, got: %v", resp)
 	}
 
-	bidHint, ok := data["bidHint"].(map[string]interface{})
+	bidHint, ok := data["bidHint"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected bidHint in data, got: %v", data)
 	}
@@ -382,12 +382,12 @@ func TestQA_BidHintFallsBackToFloorPrice(t *testing.T) {
 		t.Fatalf("GraphQL returned errors: %v", errs)
 	}
 
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected data in response, got: %v", resp)
 	}
 
-	bidHint, ok := data["bidHint"].(map[string]interface{})
+	bidHint, ok := data["bidHint"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected bidHint in data, got: %v", data)
 	}
@@ -517,12 +517,12 @@ func TestQA_ClearingPriceQ96ResolverEndToEnd(t *testing.T) {
 		t.Fatalf("GraphQL returned errors: %v", errs)
 	}
 
-	data, ok := resp["data"].(map[string]interface{})
+	data, ok := resp["data"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected data in response, got: %v", resp)
 	}
 
-	auction, ok := data["auction"].(map[string]interface{})
+	auction, ok := data["auction"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected auction in data, got: %v", data)
 	}
@@ -739,12 +739,12 @@ func TestQA_BidHintErrorWhenAuctionNotFound(t *testing.T) {
 	}
 
 	// On the green branch, verify the error message mentions the auction.
-	errList, ok := errs.([]interface{})
+	errList, ok := errs.([]any)
 	if !ok || len(errList) == 0 {
 		t.Fatalf("expected non-empty errors array, got: %v", errs)
 	}
 
-	errMap, ok := errList[0].(map[string]interface{})
+	errMap, ok := errList[0].(map[string]any)
 	if !ok {
 		t.Fatalf("expected error object, got: %v", errList[0])
 	}
