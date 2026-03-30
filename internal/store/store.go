@@ -30,6 +30,7 @@ type AuctionRepository interface {
 	Insert(ctx context.Context, auction *cca.Auction) error
 	DeleteFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error
 	GetByAddress(ctx context.Context, chainID int64, auctionAddress string) (*cca.Auction, error)
+	List(ctx context.Context, chainID int64, params PaginationParams) ([]*cca.Auction, error)
 }
 
 // WatchedContractRepository manages the set of contracts being indexed.

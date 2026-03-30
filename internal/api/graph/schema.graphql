@@ -1,0 +1,39 @@
+scalar Address
+scalar BigInt
+
+type Query {
+  auction(address: Address!): Auction
+  auctions(chainID: Int, first: Int, after: String): AuctionConnection!
+}
+
+type Auction {
+  auctionAddress: Address!
+  token: Address!
+  amount: BigInt!
+  currency: Address!
+  tokensRecipient: Address!
+  fundsRecipient: Address!
+  startBlock: Int!
+  endBlock: Int!
+  claimBlock: Int!
+  tickSpacing: BigInt!
+  validationHook: Address!
+  floorPrice: BigInt!
+  requiredCurrencyRaised: BigInt!
+  clearingPriceQ96: BigInt
+}
+
+type AuctionConnection {
+  edges: [AuctionEdge!]!
+  pageInfo: PageInfo!
+}
+
+type AuctionEdge {
+  node: Auction!
+  cursor: String!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  endCursor: String
+}

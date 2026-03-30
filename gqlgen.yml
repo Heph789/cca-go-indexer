@@ -1,0 +1,30 @@
+schema:
+  - internal/api/graph/*.graphql
+
+exec:
+  filename: internal/api/graph/generated.go
+  package: graph
+
+model:
+  filename: internal/api/graph/models_gen.go
+  package: graph
+
+resolver:
+  layout: follow-schema
+  dir: internal/api/graph
+  package: graph
+
+autobind:
+  - github.com/cca/go-indexer/internal/domain/cca
+  - github.com/cca/go-indexer/internal/api/graph
+
+models:
+  Address:
+    model:
+      - github.com/cca/go-indexer/internal/api/graph.Address
+  BigInt:
+    model:
+      - github.com/cca/go-indexer/internal/api/graph.BigInt
+  Auction:
+    model:
+      - github.com/cca/go-indexer/internal/domain/cca.Auction

@@ -16,26 +16,21 @@ import (
 )
 
 // StartBlock is the resolver for the startBlock field.
-// It converts the domain model's uint64 StartBlock to a GraphQL Int.
 func (r *auctionResolver) StartBlock(ctx context.Context, obj *cca.Auction) (int, error) {
 	return int(obj.StartBlock), nil
 }
 
 // EndBlock is the resolver for the endBlock field.
-// It converts the domain model's uint64 EndBlock to a GraphQL Int.
 func (r *auctionResolver) EndBlock(ctx context.Context, obj *cca.Auction) (int, error) {
 	return int(obj.EndBlock), nil
 }
 
 // ClaimBlock is the resolver for the claimBlock field.
-// It converts the domain model's uint64 ClaimBlock to a GraphQL Int.
 func (r *auctionResolver) ClaimBlock(ctx context.Context, obj *cca.Auction) (int, error) {
 	return int(obj.ClaimBlock), nil
 }
 
 // ClearingPriceQ96 is the resolver for the clearingPriceQ96 field.
-// It fetches the latest checkpoint for the auction and returns its clearing price,
-// or nil if no checkpoint exists yet.
 func (r *auctionResolver) ClearingPriceQ96(ctx context.Context, obj *cca.Auction) (*big.Int, error) {
 	addr := strings.ToLower(obj.AuctionAddress.Hex())
 	cp, err := r.Store.CheckpointRepo().GetLatest(ctx, r.ChainID, addr)
@@ -49,15 +44,12 @@ func (r *auctionResolver) ClearingPriceQ96(ctx context.Context, obj *cca.Auction
 }
 
 // Auction is the resolver for the auction field.
-// It looks up a single auction by its on-chain address.
 func (r *queryResolver) Auction(ctx context.Context, address common.Address) (*cca.Auction, error) {
 	addr := strings.ToLower(address.Hex())
 	return r.Store.AuctionRepo().GetByAddress(ctx, r.ChainID, addr)
 }
 
 // Auctions is the resolver for the auctions field.
-// It returns a paginated list of auctions using Relay-style cursor pagination
-// with the N+1 fetch pattern to determine hasNextPage.
 func (r *queryResolver) Auctions(ctx context.Context, chainID *int, first *int, after *string) (*AuctionConnection, error) {
 	cid := r.ChainID
 	if chainID != nil {

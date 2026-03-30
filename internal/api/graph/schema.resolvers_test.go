@@ -20,7 +20,6 @@ import (
 // ---------------------------------------------------------------------------
 
 // mockAuctionRepo is a function-pointer mock for store.AuctionRepository.
-// Only GetByAddress and List are wired up; other methods are no-op stubs.
 type mockAuctionRepo struct {
 	GetByAddressFn func(ctx context.Context, chainID int64, auctionAddress string) (*cca.Auction, error)
 	ListFn         func(ctx context.Context, chainID int64, params store.PaginationParams) ([]*cca.Auction, error)
@@ -44,7 +43,6 @@ func (m *mockAuctionRepo) List(ctx context.Context, chainID int64, params store.
 }
 
 // mockCheckpointRepo is a function-pointer mock for store.CheckpointRepository.
-// Only GetLatest is wired up; other methods are no-op stubs.
 type mockCheckpointRepo struct {
 	GetLatestFn func(ctx context.Context, chainID int64, auctionAddress string) (*cca.Checkpoint, error)
 }
@@ -113,10 +111,8 @@ func (m *mockStore) Close()                       {}
 // Test helpers
 // ---------------------------------------------------------------------------
 
-// testChainID is the chain ID used across all resolver tests.
 const testChainID int64 = 1
 
-// newTestResolver creates a Resolver backed by the given mock store.
 func newTestResolver(s *mockStore) *Resolver {
 	return &Resolver{Store: s, ChainID: testChainID}
 }
@@ -136,14 +132,9 @@ func testAuction(addr string, blockNumber uint64, logIndex uint) *cca.Auction {
 	}
 }
 
-// intPtr returns a pointer to an int.
-func intPtr(n int) *int { return &n }
-
-// strPtr returns a pointer to a string.
+func intPtr(n int) *int       { return &n }
 func strPtr(s string) *string { return &s }
 
-// cmpOpts are options used with cmp.Diff when comparing auction-related types.
-// We ignore time fields and unexported fields since they are not relevant.
 var cmpOpts = []cmp.Option{
 	cmpopts.IgnoreFields(cca.Auction{}, "CreatedAt", "UpdatedAt"),
 	cmpopts.IgnoreUnexported(big.Int{}),
@@ -154,38 +145,27 @@ var cmpOpts = []cmp.Option{
 // ---------------------------------------------------------------------------
 
 // TestQueryResolver_Auction tests the auction(address) query resolver.
-// Covers looking up an existing auction and returning nil for an unknown address.
 func TestQueryResolver_Auction(t *testing.T) {
 	wantAddr := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	wantAuction := testAuction("0x1111111111111111111111111111111111111111", 10, 0)
 
 	tests := []struct {
-		name string
-		// addr is the address passed to the auction query.
-		addr common.Address
-		// setupFn configures the mock auction repo for this test case.
-		setupFn func(repo *mockAuctionRepo)
-		// wantAuction is the expected return value (nil means not found).
+		name        string
+		addr        common.Address
+		setupFn     func(repo *mockAuctionRepo)
 		wantAuction *cca.Auction
 		wantErr     bool
 	}{
-		// --- happy path ---
-
-		// When the store has an auction at the given address, the resolver should return it.
 		{
 			name: "returns auction from store lookup",
 			addr: wantAddr,
 			setupFn: func(repo *mockAuctionRepo) {
-				repo.GetByAddressFn = func(_ context.Context, chainID int64, auctionAddress string) (*cca.Auction, error) {
+				repo.GetByAddressFn = func(_ context.Context, _ int64, _ string) (*cca.Auction, error) {
 					return wantAuction, nil
 				}
 			},
 			wantAuction: wantAuction,
 		},
-
-		// --- not found ---
-
-		// When the store returns nil for an unknown address, the resolver should return nil (not error).
 		{
 			name: "returns nil for unknown address",
 			addr: common.HexToAddress("0x9999999999999999999999999999999999999999"),
@@ -228,9 +208,8 @@ func TestQueryResolver_Auction(t *testing.T) {
 // Query.auctions resolver tests
 // ---------------------------------------------------------------------------
 
-// TestQueryResolver_Auctions tests the auctions(first, after) query resolver.
-// Covers pagination with cursors, default/clamped limits, hasNextPage via N+1 fetch,
-// and correct edge/cursor construction.
+// TestQueryResolver_Auctions tests pagination, cursors, default/clamped limits,
+// hasNextPage via N+1 fetch, and correct edge/cursor construction.
 func TestQueryResolver_Auctions(t *testing.T) {
 	auction1 := testAuction("0x1111111111111111111111111111111111111111", 10, 0)
 	auction2 := testAuction("0x2222222222222222222222222222222222222222", 20, 1)
@@ -240,27 +219,15 @@ func TestQueryResolver_Auctions(t *testing.T) {
 	wantCursor2 := pagination.EncodeCursor(auction2.BlockNumber, auction2.LogIndex)
 
 	tests := []struct {
-		name string
-		// first is the requested page size (nil means use default).
-		first *int
-		// after is the cursor to paginate after (nil means from start).
-		after *string
-		// mockAuctions is what the mock List method returns.
-		mockAuctions []*cca.Auction
-		// wantEdgeCount is the expected number of edges in the response.
-		wantEdgeCount int
-		// wantHasNextPage is the expected hasNextPage value.
+		name            string
+		first           *int
+		after           *string
+		mockAuctions    []*cca.Auction
+		wantEdgeCount   int
 		wantHasNextPage bool
-		// wantEndCursor is the expected endCursor value (nil means no edges).
-		wantEndCursor *string
-		// wantFirstCursor is the cursor of the first edge (for verifying cursor correctness).
+		wantEndCursor   *string
 		wantFirstCursor string
 	}{
-		// --- happy path ---
-
-		// Requesting 2 items when store returns exactly 2 means no next page.
-		// The N+1 pattern: resolver requests first+1 from store; if store returns
-		// <= first items, hasNextPage is false.
 		{
 			name:            "returns paginated edges with correct cursors",
 			first:           intPtr(2),
@@ -270,9 +237,6 @@ func TestQueryResolver_Auctions(t *testing.T) {
 			wantEndCursor:   strPtr(wantCursor2),
 			wantFirstCursor: wantCursor1,
 		},
-
-		// When the store returns first+1 items, hasNextPage should be true and
-		// only the first N items should appear as edges.
 		{
 			name:            "sets hasNextPage true when store returns N+1 items",
 			first:           intPtr(2),
@@ -282,12 +246,6 @@ func TestQueryResolver_Auctions(t *testing.T) {
 			wantEndCursor:   strPtr(wantCursor2),
 			wantFirstCursor: wantCursor1,
 		},
-
-		// --- default/clamping ---
-
-		// When first is nil, the resolver should default to pagination.DefaultLimit (20).
-		// We return 0 items to keep the test simple — the key assertion is that
-		// the mock receives the correct limit (tested via the response shape).
 		{
 			name:            "defaults limit to 20 when first is nil",
 			first:           nil,
@@ -296,8 +254,6 @@ func TestQueryResolver_Auctions(t *testing.T) {
 			wantHasNextPage: false,
 			wantEndCursor:   nil,
 		},
-
-		// When first exceeds MaxLimit, it should be clamped to 100.
 		{
 			name:            "clamps limit to max 100",
 			first:           intPtr(200),
@@ -306,10 +262,6 @@ func TestQueryResolver_Auctions(t *testing.T) {
 			wantHasNextPage: false,
 			wantEndCursor:   nil,
 		},
-
-		// --- empty result ---
-
-		// No auctions in the store should yield empty edges with no next page.
 		{
 			name:            "returns empty connection when store has no auctions",
 			first:           intPtr(10),
@@ -337,13 +289,10 @@ func TestQueryResolver_Auctions(t *testing.T) {
 				t.Fatal("Auctions() returned nil connection")
 			}
 
-			// Verify edge count.
-			gotEdgeCount := len(got.Edges)
-			if gotEdgeCount != tt.wantEdgeCount {
-				t.Errorf("len(Edges) = %d, want %d", gotEdgeCount, tt.wantEdgeCount)
+			if len(got.Edges) != tt.wantEdgeCount {
+				t.Errorf("len(Edges) = %d, want %d", len(got.Edges), tt.wantEdgeCount)
 			}
 
-			// Verify hasNextPage.
 			if got.PageInfo == nil {
 				t.Fatal("PageInfo is nil")
 			}
@@ -351,25 +300,21 @@ func TestQueryResolver_Auctions(t *testing.T) {
 				t.Errorf("HasNextPage = %v, want %v", got.PageInfo.HasNextPage, tt.wantHasNextPage)
 			}
 
-			// Verify endCursor.
 			if diff := cmp.Diff(tt.wantEndCursor, got.PageInfo.EndCursor); diff != "" {
 				t.Errorf("EndCursor mismatch (-want +got):\n%s", diff)
 			}
 
-			// Verify first edge cursor if there are edges.
 			if tt.wantEdgeCount > 0 && len(got.Edges) > 0 {
-				gotFirstCursor := got.Edges[0].Cursor
-				if gotFirstCursor != tt.wantFirstCursor {
-					t.Errorf("Edges[0].Cursor = %q, want %q", gotFirstCursor, tt.wantFirstCursor)
+				if got.Edges[0].Cursor != tt.wantFirstCursor {
+					t.Errorf("Edges[0].Cursor = %q, want %q", got.Edges[0].Cursor, tt.wantFirstCursor)
 				}
 			}
 		})
 	}
 }
 
-// TestQueryResolver_Auctions_PassesCursorToStore verifies that when an "after" cursor
-// is provided, the resolver decodes it and passes the correct CursorBlockNumber and
-// CursorLogIndex to the store's PaginationParams.
+// TestQueryResolver_Auctions_PassesCursorToStore verifies that an "after" cursor
+// is decoded and passed as CursorBlockNumber/CursorLogIndex to the store.
 func TestQueryResolver_Auctions_PassesCursorToStore(t *testing.T) {
 	wantBlockNumber := uint64(50)
 	wantLogIndex := uint(3)
@@ -390,7 +335,6 @@ func TestQueryResolver_Auctions_PassesCursorToStore(t *testing.T) {
 		t.Fatalf("Auctions() error = %v", err)
 	}
 
-	// The resolver should decode the cursor and pass block/log to PaginationParams.
 	if capturedParams.CursorBlockNumber == nil {
 		t.Fatal("CursorBlockNumber is nil, want non-nil")
 	}
@@ -410,7 +354,7 @@ func TestQueryResolver_Auctions_PassesCursorToStore(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestAuctionResolver_BlockFields tests the StartBlock, EndBlock, and ClaimBlock
-// field resolvers, which convert uint64 values from the domain model to int for GraphQL.
+// field resolvers that convert uint64 to int for GraphQL.
 func TestAuctionResolver_BlockFields(t *testing.T) {
 	auctionObj := &cca.Auction{
 		StartBlock: 100,
@@ -418,60 +362,46 @@ func TestAuctionResolver_BlockFields(t *testing.T) {
 		ClaimBlock: 250,
 	}
 
-	wantStartBlock := 100
-	wantEndBlock := 200
-	wantClaimBlock := 250
-
 	ms := newMockStore()
 	r := newTestResolver(ms)
 	ar := r.Auction()
 	ctx := context.Background()
 
-	// StartBlock should convert uint64 to int.
 	gotStart, err := ar.StartBlock(ctx, auctionObj)
 	if err != nil {
 		t.Fatalf("StartBlock() error = %v", err)
 	}
-	if gotStart != wantStartBlock {
-		t.Errorf("StartBlock() = %d, want %d", gotStart, wantStartBlock)
+	if gotStart != 100 {
+		t.Errorf("StartBlock() = %d, want 100", gotStart)
 	}
 
-	// EndBlock should convert uint64 to int.
 	gotEnd, err := ar.EndBlock(ctx, auctionObj)
 	if err != nil {
 		t.Fatalf("EndBlock() error = %v", err)
 	}
-	if gotEnd != wantEndBlock {
-		t.Errorf("EndBlock() = %d, want %d", gotEnd, wantEndBlock)
+	if gotEnd != 200 {
+		t.Errorf("EndBlock() = %d, want 200", gotEnd)
 	}
 
-	// ClaimBlock should convert uint64 to int.
 	gotClaim, err := ar.ClaimBlock(ctx, auctionObj)
 	if err != nil {
 		t.Fatalf("ClaimBlock() error = %v", err)
 	}
-	if gotClaim != wantClaimBlock {
-		t.Errorf("ClaimBlock() = %d, want %d", gotClaim, wantClaimBlock)
+	if gotClaim != 250 {
+		t.Errorf("ClaimBlock() = %d, want 250", gotClaim)
 	}
 }
 
 // TestAuctionResolver_ClearingPriceQ96 tests the clearingPriceQ96 field resolver.
-// It should fetch the latest checkpoint for the auction and return its ClearingPriceQ96,
-// or return nil if no checkpoint exists.
 func TestAuctionResolver_ClearingPriceQ96(t *testing.T) {
 	auctionAddr := common.HexToAddress("0x1111111111111111111111111111111111111111")
 	wantPrice := big.NewInt(999999)
 
 	tests := []struct {
-		name string
-		// setupFn configures the mock checkpoint repo.
-		setupFn func(repo *mockCheckpointRepo)
-		// wantPrice is the expected clearing price (nil means no checkpoint).
+		name      string
+		setupFn   func(repo *mockCheckpointRepo)
 		wantPrice *big.Int
 	}{
-		// --- happy path ---
-
-		// When a checkpoint exists, the resolver should return its ClearingPriceQ96.
 		{
 			name: "returns clearing price from latest checkpoint",
 			setupFn: func(repo *mockCheckpointRepo) {
@@ -485,10 +415,6 @@ func TestAuctionResolver_ClearingPriceQ96(t *testing.T) {
 			},
 			wantPrice: wantPrice,
 		},
-
-		// --- no checkpoint ---
-
-		// When no checkpoint exists (GetLatest returns nil), the resolver should return nil.
 		{
 			name: "returns nil when no checkpoint exists",
 			setupFn: func(repo *mockCheckpointRepo) {
