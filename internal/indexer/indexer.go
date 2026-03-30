@@ -271,5 +271,67 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 
 		cursor = to
 		consecutiveErrors = 0
+
+		// Inline backfill: process one batch per behind contract
+		backfillContracts, err := idx.store.WatchedContractRepo().ListNeedingBackfill(ctx, idx.config.ChainID, cursor)
+		if err != nil {
+			idx.logger.Warn("listing contracts for backfill", "error", err)
+		} else {
+			for _, contract := range backfillContracts {
+				backfillFrom := contract.LastIndexedBlock + 1
+				if contract.LastIndexedBlock == 0 {
+					backfillFrom = contract.StartBlock
+				}
+				backfillTo := min(backfillFrom+idx.config.BlockBatchSize-1, cursor)
+
+				idx.logger.Info("backfilling contract",
+					"address", contract.Address.Hex(),
+					"from", backfillFrom,
+					"to", backfillTo,
+				)
+
+				bfLogs, err := idx.ethClient.FilterLogs(ctx, ethereum.FilterQuery{
+					FromBlock: new(big.Int).SetUint64(backfillFrom),
+					ToBlock:   new(big.Int).SetUint64(backfillTo),
+					Addresses: []common.Address{contract.Address},
+					Topics:    idx.registry.TopicFilter(),
+				})
+				if err != nil {
+					idx.logger.Warn("backfill filter logs", "error", err, "address", contract.Address.Hex())
+					continue
+				}
+
+				// Build blockTimes for backfill logs
+				bfBlockTimes := make(map[uint64]time.Time)
+				if len(bfLogs) > 0 {
+					seen := make(map[uint64]bool)
+					for _, l := range bfLogs {
+						seen[l.BlockNumber] = true
+					}
+					for block := range seen {
+						header, err := idx.ethClient.HeaderByNumber(ctx, new(big.Int).SetUint64(block))
+						if err != nil {
+							idx.logger.Warn("backfill header fetch", "error", err, "block", block)
+							continue
+						}
+						bfBlockTimes[block] = time.Unix(int64(header.Time), 0).UTC()
+					}
+				}
+
+				err = idx.store.WithTx(ctx, func(txStore store.Store) error {
+					if err := idx.registry.HandleLogs(ctx, idx.config.ChainID, bfLogs, bfBlockTimes, txStore); err != nil {
+						return fmt.Errorf("handling backfill logs: %w", err)
+					}
+					if err := txStore.WatchedContractRepo().UpdateLastIndexedBlock(ctx, idx.config.ChainID, contract.Address, backfillTo); err != nil {
+						return fmt.Errorf("updating backfill cursor for %s: %w", contract.Address.Hex(), err)
+					}
+					return nil
+				})
+				if err != nil {
+					idx.logger.Warn("backfill transaction", "error", err, "address", contract.Address.Hex())
+					continue
+				}
+			}
+		}
 	}
 }
