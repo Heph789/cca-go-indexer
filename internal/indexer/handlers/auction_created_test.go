@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -146,7 +147,7 @@ func TestHandle_DecodesIndexedFields(t *testing.T) {
 	s := newMockStore()
 	h := &AuctionCreatedHandler{}
 
-	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), s)
+	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), time.Time{}, s)
 	if err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
@@ -168,7 +169,7 @@ func TestHandle_DecodesNonIndexedFields(t *testing.T) {
 	s := newMockStore()
 	h := &AuctionCreatedHandler{}
 
-	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), s)
+	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), time.Time{}, s)
 	if err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
@@ -187,7 +188,7 @@ func TestHandle_DecodesConfigData(t *testing.T) {
 	s := newMockStore()
 	h := &AuctionCreatedHandler{}
 
-	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), s)
+	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), time.Time{}, s)
 	if err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
@@ -238,7 +239,7 @@ func TestHandle_InsertsRawEvent(t *testing.T) {
 	h := &AuctionCreatedHandler{}
 
 	logEntry := fix.buildLog(t)
-	err := h.Handle(context.Background(), fix.chainID, logEntry, s)
+	err := h.Handle(context.Background(), fix.chainID, logEntry, time.Time{}, s)
 	if err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
@@ -291,7 +292,7 @@ func TestHandle_InsertsTypedAuction(t *testing.T) {
 	s := newMockStore()
 	h := &AuctionCreatedHandler{}
 
-	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), s)
+	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), time.Time{}, s)
 	if err != nil {
 		t.Fatalf("Handle() error = %v", err)
 	}
@@ -334,7 +335,7 @@ func TestHandle_ReturnsErrorOnTooFewTopics(t *testing.T) {
 		Data:    []byte{},
 	}
 
-	err := h.Handle(context.Background(), 324, logEntry, s)
+	err := h.Handle(context.Background(), 324, logEntry, time.Time{}, s)
 	if err == nil {
 		t.Fatal("expected error for too few topics, got nil")
 	}
@@ -351,7 +352,7 @@ func TestHandle_ReturnsErrorOnMalformedData(t *testing.T) {
 	logEntry := fix.buildLog(t)
 	logEntry.Data = logEntry.Data[:10]
 
-	err := h.Handle(context.Background(), fix.chainID, logEntry, s)
+	err := h.Handle(context.Background(), fix.chainID, logEntry, time.Time{}, s)
 	if err == nil {
 		t.Fatal("expected error for malformed log data, got nil")
 	}
@@ -367,7 +368,7 @@ func TestHandle_PropagatesRawEventInsertError(t *testing.T) {
 		return wantErr
 	}
 
-	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), s)
+	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), time.Time{}, s)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -386,7 +387,7 @@ func TestHandle_PropagatesAuctionInsertError(t *testing.T) {
 		return wantErr
 	}
 
-	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), s)
+	err := h.Handle(context.Background(), fix.chainID, fix.buildLog(t), time.Time{}, s)
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
