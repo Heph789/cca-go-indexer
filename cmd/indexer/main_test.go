@@ -10,9 +10,7 @@ import (
 
 // TestRegistry_BothHandlersRegistered verifies that a registry created with
 // both AuctionCreatedHandler and CheckpointUpdatedHandler exposes both event
-// topics in its TopicFilter. This exercises the registry directly (not main())
-// and should pass today. After wiring (issue #101), main() itself will
-// construct the registry this way.
+// topics in its TopicFilter.
 func TestRegistry_BothHandlersRegistered(t *testing.T) {
 	logger := slog.Default()
 
@@ -59,9 +57,7 @@ func TestRegistry_BothHandlersRegistered(t *testing.T) {
 }
 
 // TestRegistry_SingleHandler_TopicFilter verifies the baseline behavior that
-// a registry with only one handler returns a single topic. This confirms the
-// current main() wiring (AuctionCreatedHandler only) produces a filter with
-// exactly one topic.
+// a registry with only one handler returns a single topic.
 func TestRegistry_SingleHandler_TopicFilter(t *testing.T) {
 	logger := slog.Default()
 

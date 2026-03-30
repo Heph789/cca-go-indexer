@@ -151,9 +151,8 @@ func TestRun(t *testing.T) {
 }
 
 // TestRun_GraphQLEndpoint tests that the API server mounts a GraphQL endpoint
-// at /graphql. After wiring (issue #101), POST /graphql should accept GraphQL
-// queries and GET /graphql should serve the playground/introspection.
-// These tests should FAIL until the GraphQL endpoint is wired into run().
+// at /graphql. POST /graphql accepts GraphQL queries and GET /graphql serves
+// the playground.
 func TestRun_GraphQLEndpoint(t *testing.T) {
 	logger := applog.NewLogger("error", "text")
 
@@ -164,11 +163,6 @@ func TestRun_GraphQLEndpoint(t *testing.T) {
 		body       string
 		wantStatus int
 	}{
-		// --- GraphQL POST endpoint ---
-
-		// A POST to /graphql with an introspection query should return 200
-		// with a valid JSON response containing the schema. This verifies the
-		// endpoint is mounted and the gqlgen handler is wired.
 		{
 			name:       "POST /graphql returns 200 for introspection query",
 			method:     http.MethodPost,
@@ -176,22 +170,13 @@ func TestRun_GraphQLEndpoint(t *testing.T) {
 			body:       `{"query": "{ __schema { queryType { name } } }"}`,
 			wantStatus: http.StatusOK,
 		},
-
-		// --- GraphQL GET endpoint ---
-
-		// A GET to /graphql should return 200 (serves the GraphQL playground
-		// or handles GET-based queries). This verifies GET is not rejected.
 		{
-			name:       "GET /graphql returns 200",
+			name:       "GET /graphql returns 200 (playground)",
 			method:     http.MethodGet,
 			path:       "/graphql",
 			body:       "",
 			wantStatus: http.StatusOK,
 		},
-
-		// --- existing health endpoints should still work ---
-
-		// Health endpoint should continue to respond after adding GraphQL.
 		{
 			name:       "GET /health still returns 200",
 			method:     http.MethodGet,
@@ -199,8 +184,6 @@ func TestRun_GraphQLEndpoint(t *testing.T) {
 			body:       "",
 			wantStatus: http.StatusOK,
 		},
-
-		// Readiness endpoint should continue to respond after adding GraphQL.
 		{
 			name:       "GET /ready still returns 200",
 			method:     http.MethodGet,
@@ -258,10 +241,9 @@ func TestRun_GraphQLEndpoint(t *testing.T) {
 	}
 }
 
-// TestRun_GraphQLIntrospectionReturnsSchema sends a full introspection query
-// to /graphql and verifies the response is valid JSON containing
-// data.__schema.queryType.name. This confirms the schema is loaded and
-// resolvers are wired. Should FAIL until GraphQL is wired into run().
+// TestRun_GraphQLIntrospectionReturnsSchema sends an introspection query to
+// /graphql and verifies the response contains data.__schema.queryType.name,
+// confirming the schema is loaded and resolvers are wired.
 func TestRun_GraphQLIntrospectionReturnsSchema(t *testing.T) {
 	logger := applog.NewLogger("error", "text")
 	port := freePort(t)
