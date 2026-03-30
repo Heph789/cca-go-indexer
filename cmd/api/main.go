@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cca/go-indexer/internal/api"
+	"github.com/cca/go-indexer/internal/api/graph"
 	"github.com/cca/go-indexer/internal/api/handlers"
 	"github.com/cca/go-indexer/internal/config"
 	applog "github.com/cca/go-indexer/internal/log"
@@ -49,12 +50,14 @@ func main() {
 func run(ctx context.Context, cancel context.CancelFunc, cfg *config.Config, logger *slog.Logger, st store.Store) error {
 	defer st.Close()
 
-	auctionHandler := &handlers.AuctionHandler{Store: st, ChainID: cfg.ChainID}
+	resolver := &graph.Resolver{Store: st, ChainID: cfg.ChainID}
+	gqlHandler := graph.NewHandler(resolver)
 	healthHandler := &handlers.HealthHandler{Store: st, Logger: logger}
 
 	// Application routes go through the middleware chain.
 	appMux := http.NewServeMux()
-	appMux.HandleFunc("GET /api/v1/auctions/{address}", auctionHandler.Get)
+	appMux.Handle("POST /graphql", gqlHandler)
+	appMux.Handle("GET /graphql", gqlHandler)
 
 	// Health probes bypass the middleware chain so they stay fast,
 	// dependency-free, and never produce request logs that drown out
