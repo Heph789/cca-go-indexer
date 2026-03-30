@@ -14,12 +14,19 @@ type watchedContractRepo struct {
 	q querier
 }
 
-// Insert adds a new watched contract record.
+// Insert adds a new watched contract record. Duplicate (chain_id, address)
+// pairs are silently ignored for idempotent writes.
 func (r *watchedContractRepo) Insert(ctx context.Context, contract *cca.WatchedContract) error {
 	_, err := r.q.Exec(ctx,
-		`INSERT INTO watched_contracts (chain_id, address, label, start_block, last_indexed_block)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		contract.ChainID, contract.Address.Hex(), contract.Label, contract.StartBlock, contract.LastIndexedBlock,
+		`INSERT INTO watched_contracts (chain_id, address, label, start_block, start_block_time, last_indexed_block)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 ON CONFLICT DO NOTHING`,
+		contract.ChainID,
+		lowerHex(contract.Address),
+		contract.Label,
+		contract.StartBlock,
+		contract.StartBlockTime,
+		contract.LastIndexedBlock,
 	)
 	if err != nil {
 		return fmt.Errorf("insert watched contract: %w", err)

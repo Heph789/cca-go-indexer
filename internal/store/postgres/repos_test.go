@@ -15,7 +15,7 @@ func truncateAll(t *testing.T, s store.Store) {
 	t.Helper()
 	ps := s.(*pgStore)
 	ctx := context.Background()
-	_, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexed_blocks, raw_events, event_ccaf_auction_created")
+	_, err := ps.pool.Exec(ctx, "TRUNCATE indexer_cursors, indexed_blocks, raw_events, event_ccaf_auction_created, watched_contracts")
 	if err != nil {
 		t.Fatalf("truncate: %v", err)
 	}

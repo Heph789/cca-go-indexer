@@ -13,8 +13,9 @@ type WatchedContract struct {
 	ChainID          int64
 	Address          common.Address
 	Label            string
-	StartBlock       uint64 // block to begin indexing from
-	LastIndexedBlock uint64 // per-contract cursor (0 = not yet indexed)
+	StartBlock       uint64    // block to begin indexing from
+	StartBlockTime   time.Time // wall-clock time of the start block
+	LastIndexedBlock uint64    // per-contract cursor (0 = not yet indexed)
 	CreatedAt        time.Time
 	UpdatedAt        time.Time
 }
