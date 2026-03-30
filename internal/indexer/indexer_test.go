@@ -1186,10 +1186,11 @@ func TestIndexer_RetriesOnWithTxError(t *testing.T) {
 			return fmt.Errorf("db connection lost")
 		}
 		txStore := &mockStore{
-			auctionRepo:  s.auctionRepo,
-			rawEventRepo: s.rawEventRepo,
-			cursorRepo:   s.cursorRepo,
-			blockRepo:    s.blockRepo,
+			auctionRepo:         s.auctionRepo,
+			rawEventRepo:        s.rawEventRepo,
+			cursorRepo:          s.cursorRepo,
+			blockRepo:           s.blockRepo,
+			watchedContractRepo: s.watchedContractRepo,
 		}
 		err := fn(txStore)
 		if err != nil {
@@ -1344,5 +1345,432 @@ func TestIndexer_SkipsWhenChainTooYoungForConfirmations(t *testing.T) {
 	}
 	if blockNumCalls < 2 {
 		t.Errorf("expected BlockNumber to be called multiple times (polling), got %d", blockNumCalls)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Watched contract polling & cursor advancement tests
+// ---------------------------------------------------------------------------
+
+// TestIndexer_MergesWatchedContractAddresses verifies that when
+// WatchedContractRepo.ListCaughtUp returns additional addresses, the FilterLogs
+// query includes both the static config addresses AND the dynamically discovered
+// watched contract addresses. This ensures that logs from newly registered
+// auction contracts are captured once they catch up to the global cursor.
+func TestIndexer_MergesWatchedContractAddresses(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	// Config addresses: two static addresses from the indexer config.
+	configAddr1 := common.HexToAddress("0xCONFIG1")
+	configAddr2 := common.HexToAddress("0xCONFIG2")
+
+	// Watched contract addresses: two dynamically registered addresses
+	// that ListCaughtUp reports as caught up to the global cursor.
+	watchedAddr1 := common.HexToAddress("0xWATCHED1")
+	watchedAddr2 := common.HexToAddress("0xWATCHED2")
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return &types.Header{
+			ParentHash: common.HexToHash("0xparent"),
+		}, nil
+	}
+
+	// Return two watched contract addresses that are caught up.
+	s.watchedContractRepo.ListCaughtUpFn = func(ctx context.Context, chainID int64, globalCursor uint64) ([]common.Address, error) {
+		return []common.Address{watchedAddr1, watchedAddr2}, nil
+	}
+
+	var capturedQuery ethereum.FilterQuery
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		capturedQuery = q
+		cancel() // stop after first batch
+		return nil, nil
+	}
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:    1,
+		StartBlock: 1,
+		Addresses:  []common.Address{configAddr1, configAddr2},
+	})
+
+	_ = idx.Run(ctx)
+
+	// The FilterLogs query should contain all four addresses: two config + two watched.
+	wantAddrCount := 4
+	if len(capturedQuery.Addresses) != wantAddrCount {
+		t.Fatalf("expected %d addresses in FilterLogs query, got %d: %v",
+			wantAddrCount, len(capturedQuery.Addresses), capturedQuery.Addresses)
+	}
+
+	// Build a set of the captured addresses for order-independent comparison.
+	addrSet := make(map[common.Address]bool, len(capturedQuery.Addresses))
+	for _, a := range capturedQuery.Addresses {
+		addrSet[a] = true
+	}
+
+	// Verify each expected address is present.
+	for _, want := range []common.Address{configAddr1, configAddr2, watchedAddr1, watchedAddr2} {
+		if !addrSet[want] {
+			t.Errorf("expected address %s in FilterLogs query, but it was missing", want.Hex())
+		}
+	}
+}
+
+// TestIndexer_UpdatesWatchedContractCursorsAfterBatch verifies that after a
+// successful batch, UpdateLastIndexedBlock is called once for each caught-up
+// watched contract with the correct block number (the `to` value of the batch).
+// This ensures per-contract cursors advance in lockstep with the global cursor.
+func TestIndexer_UpdatesWatchedContractCursorsAfterBatch(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	// Two watched contract addresses that are caught up.
+	watchedAddr1 := common.HexToAddress("0xWATCHED1")
+	watchedAddr2 := common.HexToAddress("0xWATCHED2")
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return &types.Header{
+			ParentHash: common.HexToHash("0xparent"),
+		}, nil
+	}
+
+	s.watchedContractRepo.ListCaughtUpFn = func(ctx context.Context, chainID int64, globalCursor uint64) ([]common.Address, error) {
+		return []common.Address{watchedAddr1, watchedAddr2}, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	// Track UpdateLastIndexedBlock calls: map address -> block number.
+	type cursorUpdate struct {
+		address string
+		block   uint64
+	}
+	var updates []cursorUpdate
+	ctx, cancel := context.WithCancel(context.Background())
+
+	s.watchedContractRepo.UpdateLastIndexedBlockFn = func(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error {
+		updates = append(updates, cursorUpdate{address: address, block: lastIndexedBlock})
+		return nil
+	}
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
+		cancel() // stop after first batch completes
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: 10,
+	})
+
+	_ = idx.Run(ctx)
+
+	// Expect one UpdateLastIndexedBlock call per watched contract.
+	wantUpdateCount := 2
+	if len(updates) != wantUpdateCount {
+		t.Fatalf("expected %d UpdateLastIndexedBlock calls, got %d", wantUpdateCount, len(updates))
+	}
+
+	// The batch range is [101, 110] so the `to` value should be 110.
+	wantBlock := uint64(110)
+
+	updateSet := make(map[string]uint64, len(updates))
+	for _, u := range updates {
+		updateSet[u.address] = u.block
+	}
+
+	// Verify each watched address was updated to the correct block.
+	for _, want := range []common.Address{watchedAddr1, watchedAddr2} {
+		gotBlock, ok := updateSet[want.Hex()]
+		if !ok {
+			t.Errorf("expected UpdateLastIndexedBlock call for %s, but none was made", want.Hex())
+			continue
+		}
+		if gotBlock != wantBlock {
+			t.Errorf("expected UpdateLastIndexedBlock(%s) with block %d, got %d", want.Hex(), wantBlock, gotBlock)
+		}
+	}
+}
+
+// TestIndexer_CursorUpdatesInsideTx verifies that UpdateLastIndexedBlock calls
+// for watched contracts happen inside the WithTx transaction, alongside block
+// inserts, handler dispatch, and cursor upsert. This is critical for atomicity:
+// if the transaction rolls back, watched contract cursors must also roll back.
+func TestIndexer_CursorUpdatesInsideTx(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	watchedAddr := common.HexToAddress("0xWATCHED1")
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return &types.Header{
+			ParentHash: common.HexToHash("0xparent"),
+		}, nil
+	}
+
+	s.watchedContractRepo.ListCaughtUpFn = func(ctx context.Context, chainID int64, globalCursor uint64) ([]common.Address, error) {
+		return []common.Address{watchedAddr}, nil
+	}
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		return nil, nil
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Track whether UpdateLastIndexedBlock is called while WithTx is active,
+	// using the same pattern as TestIndexer_AllWritesInsideWithTx.
+	var withinTx bool
+	var updateCalledInTx bool
+
+	txWatchedContractRepo := &mockWatchedContractRepo{}
+	txWatchedContractRepo.UpdateLastIndexedBlockFn = func(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error {
+		if withinTx {
+			updateCalledInTx = true
+		}
+		return nil
+	}
+
+	txCursorRepo := &mockCursorRepo{}
+	txCursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
+		cancel()
+		return nil
+	}
+
+	txBlockRepo := &mockBlockRepo{}
+	txStore := &mockStore{
+		auctionRepo:         s.auctionRepo,
+		rawEventRepo:        s.rawEventRepo,
+		cursorRepo:          txCursorRepo,
+		blockRepo:           txBlockRepo,
+		watchedContractRepo: txWatchedContractRepo,
+	}
+
+	s.WithTxFn = func(ctx context.Context, fn func(txStore store.Store) error) error {
+		withinTx = true
+		defer func() { withinTx = false }()
+		return fn(txStore)
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: 3,
+	})
+
+	_ = idx.Run(ctx)
+
+	if !updateCalledInTx {
+		t.Error("expected WatchedContractRepo.UpdateLastIndexedBlock to be called within WithTx transaction")
+	}
+}
+
+// TestIndexer_NoWatchedContractsOnlyConfigAddresses verifies that when
+// ListCaughtUp returns no watched contracts (empty slice), the FilterLogs query
+// contains only the static config addresses. This is the baseline case before
+// any auction contracts have been registered or caught up.
+func TestIndexer_NoWatchedContractsOnlyConfigAddresses(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	// Config addresses only — no watched contracts.
+	configAddr1 := common.HexToAddress("0xCONFIG1")
+	configAddr2 := common.HexToAddress("0xCONFIG2")
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		return &types.Header{
+			ParentHash: common.HexToHash("0xparent"),
+		}, nil
+	}
+
+	// ListCaughtUp returns nil — no watched contracts are caught up.
+	s.watchedContractRepo.ListCaughtUpFn = func(ctx context.Context, chainID int64, globalCursor uint64) ([]common.Address, error) {
+		return nil, nil
+	}
+
+	var capturedQuery ethereum.FilterQuery
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		capturedQuery = q
+		cancel()
+		return nil, nil
+	}
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:    1,
+		StartBlock: 1,
+		Addresses:  []common.Address{configAddr1, configAddr2},
+	})
+
+	_ = idx.Run(ctx)
+
+	// Only the two config addresses should appear — no watched contract addresses.
+	wantAddrCount := 2
+	if len(capturedQuery.Addresses) != wantAddrCount {
+		t.Fatalf("expected %d addresses in FilterLogs query, got %d: %v",
+			wantAddrCount, len(capturedQuery.Addresses), capturedQuery.Addresses)
+	}
+
+	addrSet := make(map[common.Address]bool, len(capturedQuery.Addresses))
+	for _, a := range capturedQuery.Addresses {
+		addrSet[a] = true
+	}
+
+	if !addrSet[configAddr1] {
+		t.Errorf("expected config address %s in FilterLogs query", configAddr1.Hex())
+	}
+	if !addrSet[configAddr2] {
+		t.Errorf("expected config address %s in FilterLogs query", configAddr2.Hex())
+	}
+}
+
+// TestIndexer_ReorgRollsBackWatchedContractCursors verifies that during reorg
+// handling, RollbackFromBlock is called (which internally calls
+// WatchedContractRepo.RollbackCursors), ensuring that per-contract cursors are
+// rolled back alongside raw events, auctions, and block records. This tests
+// the reorg.go integration with watched contract state.
+func TestIndexer_ReorgRollsBackWatchedContractCursors(t *testing.T) {
+	ethClient := &mockEthClient{}
+	s := newMockStore()
+
+	s.cursorRepo.GetFn = func(ctx context.Context, chainID int64) (uint64, common.Hash, error) {
+		return 100, common.HexToHash("0xabc"), nil
+	}
+
+	// Return chain head far enough ahead to trigger processing.
+	ethClient.BlockNumberFn = func(ctx context.Context) (uint64, error) {
+		return 200, nil
+	}
+
+	// Create headers for blocks involved in reorg detection and ancestor search.
+	// Block 100 has a different hash on-chain vs stored (reorg detected).
+	// Block 99 matches (common ancestor).
+	reorgBlockHeader := &types.Header{Number: big.NewInt(100), Nonce: types.BlockNonce{1}}
+	ancestorHeader := &types.Header{Number: big.NewInt(99), Nonce: types.BlockNonce{2}}
+
+	ethClient.HeaderByNumberFn = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		switch number.Uint64() {
+		case 100:
+			return reorgBlockHeader, nil
+		case 99:
+			return ancestorHeader, nil
+		default:
+			return &types.Header{
+				ParentHash: common.HexToHash("0xparent"),
+			}, nil
+		}
+	}
+
+	// Block 100 stored hash differs from chain hash (triggers reorg).
+	// Block 99 stored hash matches chain hash (common ancestor).
+	// Note: the stored hash must be non-zero; detectReorg treats zero hash as
+	// "not indexed yet" and skips the reorg check.
+	staleHash := common.HexToHash("0xdead000000000000000000000000000000000000000000000000000000000001")
+	s.blockRepo.GetHashFn = func(ctx context.Context, chainID int64, blockNumber uint64) (common.Hash, error) {
+		switch blockNumber {
+		case 100:
+			// Return a non-zero hash that differs from reorgBlockHeader.Hash()
+			// to trigger reorg detection.
+			return staleHash, nil
+		case 99:
+			// Matches the chain — this is the common ancestor.
+			return ancestorHeader.Hash(), nil
+		default:
+			return common.Hash{}, nil
+		}
+	}
+
+	// Track whether RollbackCursors was called and with what block number.
+	var rollbackCursorsCalled bool
+	var rollbackCursorsFrom uint64
+
+	s.watchedContractRepo.RollbackCursorsFn = func(ctx context.Context, chainID int64, fromBlock uint64) error {
+		rollbackCursorsCalled = true
+		rollbackCursorsFrom = fromBlock
+		return nil
+	}
+
+	// After reorg handling, the indexer will resume and try to process the
+	// next batch. Cancel on the FilterLogs call to stop after reorg recovery.
+	ctx, cancel := context.WithCancel(context.Background())
+
+	ethClient.FilterLogsFn = func(_ context.Context, q ethereum.FilterQuery) ([]types.Log, error) {
+		cancel()
+		return nil, nil
+	}
+
+	s.cursorRepo.UpsertFn = func(ctx context.Context, chainID int64, blockNumber uint64, blockHash common.Hash) error {
+		return nil
+	}
+
+	registry := NewRegistry(noopLogger())
+	idx := setupIndexer(ethClient, s, registry, IndexerConfig{
+		ChainID:        1,
+		StartBlock:     1,
+		BlockBatchSize: 10,
+	})
+
+	_ = idx.Run(ctx)
+
+	if !rollbackCursorsCalled {
+		t.Fatal("expected WatchedContractRepo.RollbackCursors to be called during reorg handling")
+	}
+
+	// rollbackFrom = ancestor(99) + 1 = 100
+	wantRollbackFrom := uint64(100)
+	if rollbackCursorsFrom != wantRollbackFrom {
+		t.Errorf("expected RollbackCursors called with fromBlock=%d, got %d",
+			wantRollbackFrom, rollbackCursorsFrom)
 	}
 }

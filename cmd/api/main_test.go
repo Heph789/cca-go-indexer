@@ -18,10 +18,14 @@ type mockStore struct {
 	CloseFn func()
 }
 
-func (m *mockStore) AuctionRepo() store.AuctionRepository   { return nil }
-func (m *mockStore) RawEventRepo() store.RawEventRepository { return nil }
-func (m *mockStore) CursorRepo() store.CursorRepository     { return nil }
-func (m *mockStore) BlockRepo() store.BlockRepository       { return nil }
+func (m *mockStore) AuctionRepo() store.AuctionRepository             { return nil }
+func (m *mockStore) RawEventRepo() store.RawEventRepository           { return nil }
+func (m *mockStore) CursorRepo() store.CursorRepository               { return nil }
+func (m *mockStore) BlockRepo() store.BlockRepository                 { return nil }
+func (m *mockStore) WatchedContractRepo() store.WatchedContractRepository { return nil }
+func (m *mockStore) RollbackFromBlock(_ context.Context, _ int64, _ uint64) error {
+	return nil
+}
 func (m *mockStore) WithTx(ctx context.Context, fn func(txStore store.Store) error) error {
 	return fn(m)
 }

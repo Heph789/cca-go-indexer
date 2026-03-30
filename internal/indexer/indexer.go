@@ -112,15 +112,6 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 			}
 		}
 
-		if chainHead < idx.config.Confirmations {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(idx.config.PollInterval):
-				continue
-			}
-		}
-
 		safeHead := chainHead - idx.config.Confirmations
 		if cursor >= safeHead {
 			idx.logger.Debug("at chain head, sleeping", "cursor", cursor, "safe_head", safeHead)
@@ -161,10 +152,27 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 
 		idx.logger.Info("processing batch", "from", from, "to", to)
 
+		caughtUp, err := idx.store.WatchedContractRepo().ListCaughtUp(ctx, idx.config.ChainID, cursor)
+		if err != nil {
+			if shouldExit := idx.handleLoopError(&consecutiveErrors, "list caught-up contracts", err); shouldExit {
+				return fmt.Errorf("listing caught-up contracts (after %d retries): %w", maxLoopRetries, err)
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(idx.config.PollInterval):
+				continue
+			}
+		}
+
+		allAddresses := make([]common.Address, 0, len(idx.config.Addresses)+len(caughtUp))
+		allAddresses = append(allAddresses, idx.config.Addresses...)
+		allAddresses = append(allAddresses, caughtUp...)
+
 		logs, err := idx.ethClient.FilterLogs(ctx, ethereum.FilterQuery{
 			FromBlock: new(big.Int).SetUint64(from),
 			ToBlock:   new(big.Int).SetUint64(to),
-			Addresses: idx.config.Addresses,
+			Addresses: allAddresses,
 			Topics:    idx.registry.TopicFilter(),
 		})
 		if err != nil {
@@ -231,6 +239,12 @@ func (idx *ChainIndexer) Run(ctx context.Context) error {
 
 			if err := txStore.CursorRepo().Upsert(ctx, idx.config.ChainID, to, lastBlockHash); err != nil {
 				return fmt.Errorf("upserting cursor: %w", err)
+			}
+
+			for _, addr := range caughtUp {
+				if err := txStore.WatchedContractRepo().UpdateLastIndexedBlock(ctx, idx.config.ChainID, addr.Hex(), to); err != nil {
+					return fmt.Errorf("updating watched contract cursor for %s: %w", addr.Hex(), err)
+				}
 			}
 
 			return nil

@@ -51,40 +51,65 @@ func (m *mockEthClient) Close() {
 // --- mockStore ---
 
 type mockStore struct {
-	auctionRepo  *mockAuctionRepo
-	rawEventRepo *mockRawEventRepo
-	cursorRepo   *mockCursorRepo
-	blockRepo    *mockBlockRepo
-	WithTxFn     func(ctx context.Context, fn func(txStore store.Store) error) error
-	CloseFn      func()
+	auctionRepo         *mockAuctionRepo
+	rawEventRepo        *mockRawEventRepo
+	cursorRepo          *mockCursorRepo
+	blockRepo           *mockBlockRepo
+	watchedContractRepo *mockWatchedContractRepo
+	WithTxFn            func(ctx context.Context, fn func(txStore store.Store) error) error
+	RollbackFromBlockFn func(ctx context.Context, chainID int64, fromBlock uint64) error
+	CloseFn             func()
 }
 
 func newMockStore() *mockStore {
 	return &mockStore{
-		auctionRepo:  &mockAuctionRepo{},
-		rawEventRepo: &mockRawEventRepo{},
-		cursorRepo:   &mockCursorRepo{},
-		blockRepo:    &mockBlockRepo{},
+		auctionRepo:         &mockAuctionRepo{},
+		rawEventRepo:        &mockRawEventRepo{},
+		cursorRepo:          &mockCursorRepo{},
+		blockRepo:           &mockBlockRepo{},
+		watchedContractRepo: &mockWatchedContractRepo{},
 	}
 }
 
-func (m *mockStore) AuctionRepo() store.AuctionRepository   { return m.auctionRepo }
-func (m *mockStore) RawEventRepo() store.RawEventRepository { return m.rawEventRepo }
-func (m *mockStore) CursorRepo() store.CursorRepository     { return m.cursorRepo }
-func (m *mockStore) BlockRepo() store.BlockRepository       { return m.blockRepo }
+func (m *mockStore) AuctionRepo() store.AuctionRepository             { return m.auctionRepo }
+func (m *mockStore) RawEventRepo() store.RawEventRepository           { return m.rawEventRepo }
+func (m *mockStore) CursorRepo() store.CursorRepository               { return m.cursorRepo }
+func (m *mockStore) BlockRepo() store.BlockRepository                 { return m.blockRepo }
+func (m *mockStore) WatchedContractRepo() store.WatchedContractRepository {
+	return m.watchedContractRepo
+}
 
 func (m *mockStore) WithTx(ctx context.Context, fn func(txStore store.Store) error) error {
 	if m.WithTxFn != nil {
 		return m.WithTxFn(ctx, fn)
 	}
-	// Default: call fn with a separate tx store so tests can distinguish
 	txStore := &mockStore{
-		auctionRepo:  m.auctionRepo,
-		rawEventRepo: m.rawEventRepo,
-		cursorRepo:   m.cursorRepo,
-		blockRepo:    m.blockRepo,
+		auctionRepo:         m.auctionRepo,
+		rawEventRepo:        m.rawEventRepo,
+		cursorRepo:          m.cursorRepo,
+		blockRepo:           m.blockRepo,
+		watchedContractRepo: m.watchedContractRepo,
 	}
 	return fn(txStore)
+}
+
+func (m *mockStore) RollbackFromBlock(ctx context.Context, chainID int64, fromBlock uint64) error {
+	if m.RollbackFromBlockFn != nil {
+		return m.RollbackFromBlockFn(ctx, chainID, fromBlock)
+	}
+	if err := m.rawEventRepo.DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
+		return err
+	}
+	if err := m.auctionRepo.DeleteFromBlock(ctx, chainID, fromBlock); err != nil {
+		return err
+	}
+	if err := m.watchedContractRepo.RollbackCursors(ctx, chainID, fromBlock); err != nil {
+		return err
+	}
+	if err := m.blockRepo.DeleteFrom(ctx, chainID, fromBlock); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (m *mockStore) Ping(_ context.Context) error { return nil }
@@ -191,6 +216,51 @@ func (m *mockBlockRepo) GetHash(ctx context.Context, chainID int64, blockNumber 
 func (m *mockBlockRepo) DeleteFrom(ctx context.Context, chainID int64, fromBlock uint64) error {
 	if m.DeleteFromFn != nil {
 		return m.DeleteFromFn(ctx, chainID, fromBlock)
+	}
+	return nil
+}
+
+// --- mockWatchedContractRepo ---
+
+type mockWatchedContractRepo struct {
+	InsertFn                 func(ctx context.Context, contract *cca.WatchedContract) error
+	ListCaughtUpFn           func(ctx context.Context, chainID int64, globalCursor uint64) ([]common.Address, error)
+	ListNeedingBackfillFn    func(ctx context.Context, chainID int64, globalCursor uint64) ([]*cca.WatchedContract, error)
+	UpdateLastIndexedBlockFn func(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error
+	RollbackCursorsFn        func(ctx context.Context, chainID int64, fromBlock uint64) error
+}
+
+func (m *mockWatchedContractRepo) Insert(ctx context.Context, contract *cca.WatchedContract) error {
+	if m.InsertFn != nil {
+		return m.InsertFn(ctx, contract)
+	}
+	return nil
+}
+
+func (m *mockWatchedContractRepo) ListCaughtUp(ctx context.Context, chainID int64, globalCursor uint64) ([]common.Address, error) {
+	if m.ListCaughtUpFn != nil {
+		return m.ListCaughtUpFn(ctx, chainID, globalCursor)
+	}
+	return nil, nil
+}
+
+func (m *mockWatchedContractRepo) ListNeedingBackfill(ctx context.Context, chainID int64, globalCursor uint64) ([]*cca.WatchedContract, error) {
+	if m.ListNeedingBackfillFn != nil {
+		return m.ListNeedingBackfillFn(ctx, chainID, globalCursor)
+	}
+	return nil, nil
+}
+
+func (m *mockWatchedContractRepo) UpdateLastIndexedBlock(ctx context.Context, chainID int64, address string, lastIndexedBlock uint64) error {
+	if m.UpdateLastIndexedBlockFn != nil {
+		return m.UpdateLastIndexedBlockFn(ctx, chainID, address, lastIndexedBlock)
+	}
+	return nil
+}
+
+func (m *mockWatchedContractRepo) RollbackCursors(ctx context.Context, chainID int64, fromBlock uint64) error {
+	if m.RollbackCursorsFn != nil {
+		return m.RollbackCursorsFn(ctx, chainID, fromBlock)
 	}
 	return nil
 }
