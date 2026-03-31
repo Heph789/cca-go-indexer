@@ -1,6 +1,6 @@
 ---
 name: fix-pr-issues
-description: Implement fixes from a review triage doc's "Issues to Fix in This PR" section using TDD in subagents, then push and reply to review notes.
+description: Implement fixes from a review triage doc's "Issues to Fix in This PR" section using TDD in subagents, then restack, submit, and reply to review notes.
 argument-hint: "path to triage doc (e.g. local_ignored/pr47_issues.md)"
 ---
 
@@ -38,15 +38,27 @@ Use the simplifier agent to clean up the code touched by this fix. Commit if the
 
 **Commit discipline:** Do not batch unrelated fixes together. Each issue gets its own red-green-simplify cycle. Commit at least once per phase (red, green, simplify), and more often if the work within a phase is significant.
 
-### 4. Push
+### 4. Restack
 
-After all fixes are committed, push the branch:
+After all fixes are committed, cascade the changes to downstream branches:
 
 ```bash
-git push
+gt stack restack
 ```
 
-### 5. Reply to Review Notes
+### 5. Verify Downstream
+
+Check that downstream branches still compile and pass tests. If restack caused conflicts that couldn't be auto-resolved, report them to the user rather than guessing at resolutions.
+
+### 6. Submit
+
+Update all PRs in the stack:
+
+```bash
+gt stack submit
+```
+
+### 7. Reply to Review Notes
 
 For each fixed issue, reply to the original review note(s) on the PR explaining what was changed. Use `gh` to post the reply:
 
@@ -56,13 +68,13 @@ gh api repos/{owner}/{repo}/pulls/{pr}/comments/{comment_id}/replies -f body='<r
 
 Keep replies concise — state what was fixed and reference the commit SHA. If a single issue addresses multiple review notes, reply to each one.
 
-### 6. Update Triage Doc
+### 8. Update Triage Doc
 
 Mark each fixed issue in the triage doc as completed with the commit SHA.
 
-### 7. Report
+### 9. Report
 
-Print a summary: which issues were fixed, commit SHAs, and review notes replied to.
+Print a summary: which issues were fixed, commit SHAs, review notes replied to, and whether downstream branches are clean.
 
 ## Compaction
 

@@ -51,8 +51,6 @@ What you need to build: helpers, fixtures, docker-compose setup, seed data, mock
 #### Expected Red Phase Failures
 For each experiment, describe what you expect to happen when run against the previous gate's branch, and why. This forces you to think about what each experiment actually validates.
 
-**Wait for user confirmation before proceeding.**
-
 ### 3. Build
 
 Build the test harness and write all experiments (required + agent-designed).
@@ -107,8 +105,8 @@ If an experiment fails here:
 
 Follow the same commit and PR process as `/implement-issues`:
 - Commit the final test suite
-- Create a draft PR
-- Link to the QA gate issue
+- `gt stack submit --draft` to create/update PRs
+- Link to the QA gate issue with `Addresses #<ISSUE_NUMBER>` in the PR body
 
 ## When Invoked by `/implement-issues`
 
