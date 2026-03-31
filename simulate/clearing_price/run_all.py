@@ -159,11 +159,18 @@ def main() -> int:
         # ------------------------------------------------------------------
         # Experiment 1: Indexer processes CheckpointUpdated events
         # ------------------------------------------------------------------
-        # Submit a bid on chain to emit CheckpointUpdated. The indexer
-        # should capture it IF the auction address is in its filter set.
-        # This verifies the full pipeline: chain event -> indexer -> Postgres.
+        # Register the auction as a watched contract (users do this manually),
+        # then submit a bid to emit CheckpointUpdated. The indexer should
+        # capture the event and persist it to Postgres.
         print()
         print("--- Experiment 1: CheckpointUpdated indexing pipeline ---")
+
+        # Register auction as a watched contract so the indexer monitors it.
+        _psql(
+            f"INSERT INTO watched_contracts (chain_id, address, label) "
+            f"VALUES ({CHAIN_ID}, '{auction.lower()}', 'qa-test-auction') "
+            f"ON CONFLICT DO NOTHING",
+        )
 
         if auction_data:
             start_block = auction_data["startBlock"]
