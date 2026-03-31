@@ -1,6 +1,6 @@
 # CCA Go Indexer
 
-An indexer and API for Uniswap's Continuous Clearing Auction (CCA) token sale contracts, built in Go.
+An indexer and API for Uniswap's Continuous Clearing Auction (CCA) token sale contracts, built in Go. README written by AI. You can see my iteration on the AI workflow on [process-design branch](https://github.com/Heph789/cca-go-indexer/tree/process-design)
 
 ## Why This Project
 
